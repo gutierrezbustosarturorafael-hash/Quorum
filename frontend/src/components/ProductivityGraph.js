@@ -1,10 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { memo, useMemo, useState } from 'react';
 import { Card } from 'react-bootstrap';
 import { getMeetingObjectives } from '../utils/strategicProgress';
 
 const COLORS = ['#2563eb', '#059669', '#d97706', '#7c3aed', '#db2777', '#0891b2', '#65a30d', '#ea580c', '#4f46e5', '#0f766e'];
 const clampProgress = value => Math.min(100, Math.max(0, Number(value) || 0));
 const normalize = value => String(value || '').trim().toLocaleLowerCase('es-MX');
+const CHART_WIDTH = 1000;
+const CHART_PADDING = { top: 18, right: 24, bottom: 34, left: 58 };
+const CHART_LANE_HEIGHT = 84;
 
 const getIndicatorSeries = (objetivos, reuniones) => {
   const history = getMeetingObjectives(reuniones);
@@ -58,33 +61,30 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
   const activeIndicatorId = indicators.some(indicator => indicator.id === selectedIndicatorId)
     ? selectedIndicatorId
     : null;
-  const width = 1000;
-  const padding = { top: 18, right: 24, bottom: 34, left: 58 };
-  const laneHeight = 84;
-  const height = padding.top + indicators.length * laneHeight + padding.bottom;
-  const chartWidth = width - padding.left - padding.right;
-  const dateBounds = indicators.reduce((bounds, indicator) => indicator.records.reduce((current, record) => {
+  const height = CHART_PADDING.top + indicators.length * CHART_LANE_HEIGHT + CHART_PADDING.bottom;
+  const chartWidth = CHART_WIDTH - CHART_PADDING.left - CHART_PADDING.right;
+  const dateBounds = useMemo(() => indicators.reduce((bounds, indicator) => indicator.records.reduce((current, record) => {
     const time = record.date.getTime();
     return {
       first: Math.min(current.first, time),
       last: Math.max(current.last, time)
     };
-  }, bounds), { first: Infinity, last: -Infinity });
+  }, bounds), { first: Infinity, last: -Infinity }), [indicators]);
   const firstDate = Number.isFinite(dateBounds.first) ? dateBounds.first : 0;
   const lastDate = Number.isFinite(dateBounds.last) ? dateBounds.last : 0;
   const dateDuration = lastDate - firstDate;
-  const chartIndicators = indicators.map((indicator, index) => {
+  const chartIndicators = useMemo(() => indicators.map((indicator, index) => {
     const domainMin = 0;
     const domainMax = 100;
     const domainRange = domainMax - domainMin;
-    const laneTop = padding.top + index * laneHeight;
+    const laneTop = CHART_PADDING.top + index * CHART_LANE_HEIGHT;
     const plotTop = laneTop + 22;
     const plotHeight = 48;
     const points = indicator.records.map(record => ({
       ...record,
       x: dateDuration > 0
-        ? padding.left + ((record.date.getTime() - firstDate) / dateDuration) * chartWidth
-        : padding.left + chartWidth / 2,
+        ? CHART_PADDING.left + ((record.date.getTime() - firstDate) / dateDuration) * chartWidth
+        : CHART_PADDING.left + chartWidth / 2,
       y: plotTop + plotHeight - ((record.value - domainMin) / domainRange) * plotHeight
     }));
     return {
@@ -96,7 +96,7 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
       plotHeight,
       points
     };
-  });
+  }), [indicators, dateDuration, firstDate, chartWidth]);
 
   return (
     <Card className="mb-4 productivity-card">
@@ -128,14 +128,14 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
             </div>
             <div className="productivity-chart-wrapper">
               <svg
-                viewBox={`0 0 ${width} ${height}`}
+                viewBox={`0 0 ${CHART_WIDTH} ${height}`}
                 role="group"
                 aria-label={`Evolución del progreso de ${indicators.length} indicadores en escala de 0 a 100 por ciento`}
               >
                 {chartIndicators.map((indicator, indicatorIndex) => {
                   const points = indicator.points;
                   const line = points.map(point => `${point.x},${point.y}`).join(' ');
-                  const separatorY = indicator.laneTop + laneHeight;
+                  const separatorY = indicator.laneTop + CHART_LANE_HEIGHT;
                   const isSelected = activeIndicatorId === null || activeIndicatorId === indicator.id;
                   return (
                     <g
@@ -143,7 +143,7 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
                       className={isSelected ? 'productivity-series' : 'productivity-series productivity-series-muted'}
                     >
                       <text
-                        x={padding.left - 10}
+                        x={CHART_PADDING.left - 10}
                         y={indicator.plotTop + 5}
                         textAnchor="end"
                         className="productivity-axis"
@@ -151,7 +151,7 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
                         {Math.round(indicator.domainMax)}%
                       </text>
                       <text
-                        x={padding.left - 10}
+                        x={CHART_PADDING.left - 10}
                         y={indicator.plotTop + indicator.plotHeight + 4}
                         textAnchor="end"
                         className="productivity-axis"
@@ -159,15 +159,15 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
                         {Math.round(indicator.domainMin)}%
                       </text>
                       <line
-                        x1={padding.left}
-                        x2={width - padding.right}
+                        x1={CHART_PADDING.left}
+                        x2={CHART_WIDTH - CHART_PADDING.right}
                         y1={indicator.plotTop}
                         y2={indicator.plotTop}
                         className="productivity-grid"
                       />
                       <line
-                        x1={padding.left}
-                        x2={width - padding.right}
+                        x1={CHART_PADDING.left}
+                        x2={CHART_WIDTH - CHART_PADDING.right}
                         y1={indicator.plotTop + indicator.plotHeight}
                         y2={indicator.plotTop + indicator.plotHeight}
                         className="productivity-grid"
@@ -202,8 +202,8 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
                       ))}
                       {indicator !== chartIndicators[chartIndicators.length - 1] && (
                         <line
-                          x1={padding.left}
-                          x2={width - padding.right}
+                          x1={CHART_PADDING.left}
+                          x2={CHART_WIDTH - CHART_PADDING.right}
                           y1={separatorY}
                           y2={separatorY}
                           className="productivity-separator"
@@ -212,10 +212,10 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
                     </g>
                   );
                 })}
-                <text x={padding.left} y={height - 8} textAnchor="start" className="productivity-axis">
+                <text x={CHART_PADDING.left} y={height - 8} textAnchor="start" className="productivity-axis">
                   {new Date(firstDate).toLocaleDateString('es-MX')}
                 </text>
-                <text x={width - padding.right} y={height - 8} textAnchor="end" className="productivity-axis">
+                <text x={CHART_WIDTH - CHART_PADDING.right} y={height - 8} textAnchor="end" className="productivity-axis">
                   {new Date(lastDate).toLocaleDateString('es-MX')}
                 </text>
               </svg>
@@ -244,4 +244,4 @@ const ProductivityGraph = ({ objetivos = [], reuniones = [], scopeLabel = 'Toda 
   );
 };
 
-export default ProductivityGraph;
+export default memo(ProductivityGraph);

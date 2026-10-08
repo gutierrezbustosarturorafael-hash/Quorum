@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, Button, Form, Row, Col, ProgressBar, InputGroup } from 'react-bootstrap';
-import RisingLines from './RisingLines';
 import PrivacyNotice from './PrivacyNotice';
 
 const INITIAL_FORM = {
@@ -31,11 +30,17 @@ const INITIAL_FORM = {
 
 const TERMS_VERSION = '2026-09-23';
 
-const AuthModal = ({ show, mode, onClose, onSuccess }) => {
+const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+
+  const switchMode = nextMode => {
+    setStep(1);
+    setShowPassword(false);
+    onModeChange(nextMode);
+  };
 
   useEffect(() => {
     if (show) {
@@ -134,7 +139,6 @@ const AuthModal = ({ show, mode, onClose, onSuccess }) => {
         <Modal.Title>{mode === 'login' ? 'Iniciar sesión' : 'Crear cuenta empresarial'}</Modal.Title>
       </Modal.Header>
       <Modal.Body className="auth-modal-body">
-        <RisingLines className="auth-rising-lines" />
         <div className="auth-modal-content">
         {mode === 'login' ? (
           <Form onSubmit={handleLoginSubmit}>
@@ -169,6 +173,12 @@ const AuthModal = ({ show, mode, onClose, onSuccess }) => {
                 {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
               </Button>
             </div>
+            <p className="text-center small mt-3 mb-0">
+              ¿Aún no tienes cuenta?{' '}
+              <Button variant="link" className="p-0 align-baseline" type="button" onClick={() => switchMode('registro')}>
+                Crear cuenta empresarial
+              </Button>
+            </p>
           </Form>
         ) : (
           <Form onSubmit={step === 3 ? handleSubmit : nextStep}>
@@ -336,6 +346,14 @@ const AuthModal = ({ show, mode, onClose, onSuccess }) => {
               </Button>
             </div>
           </Form>
+        )}
+        {mode === 'registro' && (
+          <p className="text-center small mt-3 mb-0">
+            ¿Ya tienes cuenta?{' '}
+            <Button variant="link" className="p-0 align-baseline" type="button" onClick={() => switchMode('login')}>
+              Iniciar sesión
+            </Button>
+          </p>
         )}
         </div>
       </Modal.Body>

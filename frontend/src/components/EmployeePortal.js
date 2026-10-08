@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, Badge, Button, Card, Container, Form, Modal, Spinner } from 'react-bootstrap';
-import { ArrowUpRight, BriefcaseBusiness, Building2, CalendarDays, Clock3, FileSpreadsheet, LogOut, MapPin, Moon, Pencil, Plus, RefreshCw, Settings2, Sun, Target, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, Building2, CalendarDays, Clock3, FileSpreadsheet, LogOut, MapPin, Moon, Pencil, Plus, Settings2, Sun, Target, Trash2, UserRound, X } from 'lucide-react';
 import ApiService from '../services/apiService';
 import RisingLines from './RisingLines';
 import PrivacyNotice from './PrivacyNotice';
@@ -128,6 +128,9 @@ const EmployeePortal = ({ companyId }) => {
   ));
   const [largeText, setLargeText] = useState(() => localStorage.getItem('quorumEmployeeLargeText') === 'true');
   const [reduceMotion, setReduceMotion] = useState(() => localStorage.getItem('quorumEmployeeReduceMotion') === 'true');
+  const [activeEmployeeSection, setActiveEmployeeSection] = useState('plan');
+  const [companyMeetingDate, setCompanyMeetingDate] = useState('');
+  const [expandedCompanyMeetingIds, setExpandedCompanyMeetingIds] = useState(() => new Set());
   const [showEmployeeSettings, setShowEmployeeSettings] = useState(false);
   const [showPersonalStrategyForm, setShowPersonalStrategyForm] = useState(false);
   const [savingPersonalStrategy, setSavingPersonalStrategy] = useState(false);
@@ -158,7 +161,6 @@ const EmployeePortal = ({ companyId }) => {
   const [lookingUpCompany, setLookingUpCompany] = useState(false);
   const [token, setToken] = useState('');
   const [portal, setPortal] = useState(null);
-  const [refreshingPortal, setRefreshingPortal] = useState(false);
   const [uploadingSpreadsheetMeetingId, setUploadingSpreadsheetMeetingId] = useState('');
   const [spreadsheetUploadErrors, setSpreadsheetUploadErrors] = useState({});
   const [error, setError] = useState('');
@@ -188,8 +190,16 @@ const EmployeePortal = ({ companyId }) => {
 
   useEffect(() => {
     document.body.classList.toggle('dark-theme', employeeTheme === 'dark');
+    document.body.classList.toggle('light-theme', employeeTheme === 'light');
+    document.body.classList.toggle('employee-portal-theme-light', employeeTheme === 'light');
+    document.body.classList.toggle('employee-portal-theme-dark', employeeTheme === 'dark');
     localStorage.setItem('quorumEmployeeTheme', employeeTheme);
-    return () => document.body.classList.remove('dark-theme');
+    return () => document.body.classList.remove(
+      'dark-theme',
+      'light-theme',
+      'employee-portal-theme-light',
+      'employee-portal-theme-dark'
+    );
   }, [employeeTheme]);
 
   useEffect(() => {
@@ -201,19 +211,6 @@ const EmployeePortal = ({ companyId }) => {
     const response = await ApiService.getEmployeePortal(accessToken);
     setPortal(response.data);
   }, []);
-
-  const refreshPortal = async () => {
-    if (!token || refreshingPortal) return;
-    setRefreshingPortal(true);
-    try {
-      await loadPortal(token);
-      setError('');
-    } catch (refreshError) {
-      setError(refreshError.message || 'No se pudo actualizar la información del equipo.');
-    } finally {
-      setRefreshingPortal(false);
-    }
-  };
 
   const uploadMeetingSpreadsheet = async (meeting, file) => {
     if (!token || !file) return;
@@ -407,6 +404,18 @@ const EmployeePortal = ({ companyId }) => {
   const personalObjectives = portal?.indicadoresPersonales || [];
   const personalMeetings = meetings.filter(meeting => meeting.categoriaEmpleado === 'personal');
   const companyMeetings = meetings.filter(meeting => meeting.categoriaEmpleado !== 'personal');
+  const filteredCompanyMeetings = companyMeetingDate
+    ? companyMeetings.filter(meeting => String(meeting.fecha || '').slice(0, 10) === companyMeetingDate)
+    : companyMeetings;
+
+  const toggleCompanyMeeting = meetingId => {
+    setExpandedCompanyMeetingIds(current => {
+      const next = new Set(current);
+      if (next.has(meetingId)) next.delete(meetingId);
+      else next.add(meetingId);
+      return next;
+    });
+  };
 
   const openPersonalMeetingForm = meeting => {
     setPersonalMeetingError('');
@@ -620,8 +629,9 @@ const EmployeePortal = ({ companyId }) => {
     </Card>
   );
 
-  const renderMeeting = meeting => {
+  const renderMeeting = (meeting, collapsible = false) => {
     const meetingId = String(meeting._id || meeting.id);
+    const isExpanded = !collapsible || expandedCompanyMeetingIds.has(meetingId);
     const employeeArea = String(portal?.profile?.area || '')
       .normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
     const meetingAreas = (meeting.departamentos || []).map(area =>
@@ -636,15 +646,41 @@ const EmployeePortal = ({ companyId }) => {
     <Card key={meetingId} className="employee-meeting-card h-100">
       <Card.Body>
         <div className="employee-meeting-topline">
-          <div className="employee-meeting-icon"><CalendarDays size={19} /></div>
-          <div className="d-flex flex-wrap justify-content-end gap-2">
-            {meeting.categoriaEmpleado === 'personal' && <Badge bg="info">Invitación personal</Badge>}
-            <Badge bg={meeting.status === 'en_curso' ? 'warning' : 'primary'} className="employee-meeting-status">
-              {meeting.status === 'en_curso' ? 'En curso' : 'Próxima'}
-            </Badge>
+          {!collapsible && <div className="employee-meeting-icon"><CalendarDays size={19} /></div>}
+          <div className="d-flex align-items-center flex-wrap justify-content-end gap-2 ms-auto">
+            {!collapsible && meeting.categoriaEmpleado === 'personal' && <Badge bg="info">Invitación personal</Badge>}
+            {!collapsible && (
+              <Badge bg={meeting.status === 'en_curso' ? 'warning' : 'primary'} className="employee-meeting-status">
+                {meeting.status === 'en_curso' ? 'En curso' : 'Próxima'}
+              </Badge>
+            )}
+            {collapsible && (
+              <Button
+                type="button"
+                variant="outline-primary"
+                size="sm"
+                aria-expanded={isExpanded}
+                aria-controls={`company-meeting-details-${meetingId}`}
+                onClick={() => toggleCompanyMeeting(meetingId)}
+              >
+                {isExpanded ? 'Ocultar información' : 'Ver información'}
+              </Button>
+            )}
           </div>
         </div>
         <h3 className="employee-meeting-title">{meeting.titulo}</h3>
+        {collapsible && (
+          <div className="employee-meeting-details employee-meeting-summary">
+            <span>
+              <CalendarDays size={15} />
+              {new Date(`${meeting.fecha}T00:00:00`).toLocaleDateString('es-MX', {
+                weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'
+              })}
+            </span>
+          </div>
+        )}
+        {isExpanded && (
+        <div id={collapsible ? `company-meeting-details-${meetingId}` : undefined}>
         <div className="employee-meeting-details">
           <span><CalendarDays size={15} />{new Date(`${meeting.fecha}T${meeting.hora || '00:00'}`).toLocaleDateString('es-MX', {
             weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'
@@ -716,6 +752,8 @@ const EmployeePortal = ({ companyId }) => {
               document={document}
             />
           ))}
+        </div>
+        )}
       </Card.Body>
     </Card>
     );
@@ -777,9 +815,20 @@ const EmployeePortal = ({ companyId }) => {
               <div className="dashboard-hero-mark" aria-hidden="true"><span>Q</span></div>
             </section>
             <nav className="employee-portal-nav mb-4" aria-label="Secciones de tu portal">
-              <a href="#employee-personal-plan"><Target size={16} />Mi plan</a>
-              <a href="#employee-personal-meetings"><CalendarDays size={16} />Mi agenda</a>
-              <a href="#employee-company-meetings"><Building2 size={16} />Reuniones de empresa</a>
+              <button type="button" aria-pressed={activeEmployeeSection === 'plan'} className={activeEmployeeSection === 'plan' ? 'active' : ''} onClick={() => setActiveEmployeeSection('plan')}>
+                <Target size={16} />Mi plan
+              </button>
+              <button type="button" aria-pressed={activeEmployeeSection === 'agenda'} className={activeEmployeeSection === 'agenda' ? 'active' : ''} onClick={() => setActiveEmployeeSection('agenda')}>
+                <CalendarDays size={16} />Mi agenda
+              </button>
+              <button type="button" aria-pressed={activeEmployeeSection === 'company'} className={activeEmployeeSection === 'company' ? 'active' : ''} onClick={() => setActiveEmployeeSection('company')}>
+                <Building2 size={16} />Reuniones de empresa
+              </button>
+              {(portal.profile?.esJefeDepartamento || portal.profile?.esJefeEmpresa) && (
+                <button type="button" aria-pressed={activeEmployeeSection === 'team'} className={activeEmployeeSection === 'team' ? 'active' : ''} onClick={() => setActiveEmployeeSection('team')}>
+                  <BriefcaseBusiness size={16} />Equipo
+                </button>
+              )}
             </nav>
           </>
         )}
@@ -861,7 +910,7 @@ const EmployeePortal = ({ companyId }) => {
           </Card>
         )}
 
-        {portal?.profileComplete && (
+        {portal?.profileComplete && activeEmployeeSection === 'plan' && (
           <Card className="employee-objectives-card mb-4">
             <Card.Body>
               <div className="employee-section-heading mb-3">
@@ -1144,6 +1193,8 @@ const EmployeePortal = ({ companyId }) => {
           </Card>
         ) : (
           <>
+            {activeEmployeeSection === 'team' && (
+            <>
             {portal.profile?.rol === 'directivo' && portal.indicadoresArea?.length > 0 && (
               <Card className="employee-objectives-card mb-4">
                 <Card.Body>
@@ -1177,69 +1228,10 @@ const EmployeePortal = ({ companyId }) => {
               </Card>
             )}
 
-            {(portal.profile?.esJefeDepartamento || portal.profile?.esJefeEmpresa)
-              && (
-                <Card className="employee-objectives-card mb-4">
-                  <Card.Body>
-                    <div className="employee-section-heading mb-3">
-                      <div className="employee-section-icon"><BriefcaseBusiness size={19} /></div>
-                      <div>
-                        <span className="employee-profile-caption">SEGUIMIENTO DEL EQUIPO</span>
-                        <h2>{portal.profile.esJefeEmpresa ? 'Indicadores personales de la empresa' : 'Indicadores personales de mi departamento'}</h2>
-                        <p className="mb-0">Los indicadores que cada persona agrega a su plan también están disponibles aquí.</p>
-                      </div>
-                      <Button
-                        type="button"
-                        variant="outline-primary"
-                        size="sm"
-                        className="ms-auto"
-                        onClick={refreshPortal}
-                        disabled={refreshingPortal}
-                        aria-label="Actualizar indicadores del equipo"
-                      >
-                        {refreshingPortal
-                          ? <><Spinner size="sm" className="me-2" />Actualizando...</>
-                          : <><RefreshCw size={15} className="me-2" />Actualizar</>}
-                      </Button>
-                    </div>
-                    {portal.indicadoresEquipo?.length ? (
-                      <div className="d-flex flex-column gap-3">
-                        {portal.indicadoresEquipo.map(employee => (
-                          <div key={employee.empleadoId} className="border rounded p-3">
-                            <h3 className="h6 mb-3">
-                              {employee.nombre || 'Empleado'}
-                              <span className="small text-muted fw-normal ms-2">{employee.area}</span>
-                            </h3>
-                            <div className="row g-3">
-                              {employee.indicadores.map(objective => {
-                                const progress = Math.min(100, Math.max(0, Number(objective.progreso) || 0));
-                                return (
-                                  <div className="col-lg-6" key={objective._id || objective.id}>
-                                    <div className="border rounded p-3 h-100">
-                                      <div className="d-flex justify-content-between gap-2">
-                                        <strong>{objective.nombre}</strong>
-                                        <span className="fw-semibold">{progress}%</span>
-                                      </div>
-                                      <div className="progress mt-2" role="progressbar" aria-label={`Avance de ${objective.nombre}`} aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
-                                        <div className="progress-bar" style={{ width: `${progress}%` }} />
-                                      </div>
-                                      {objective.descripcion && <p className="small text-muted mb-0 mt-2">{objective.descripcion}</p>}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="small text-muted mb-0">Aún no hay indicadores personales de otras personas en tu ámbito.</p>
-                    )}
-                  </Card.Body>
-                </Card>
-              )}
+            </>
+            )}
 
-            <section id="employee-personal-plan" className="employee-meetings-section mb-4">
+            {activeEmployeeSection === 'plan' && <section id="employee-personal-plan" className="employee-meetings-section mb-4">
               <div className="employee-section-heading mb-3">
                 <div className="employee-section-icon employee-section-icon-personal"><Target size={19} /></div>
                 <div className="flex-grow-1">
@@ -1335,9 +1327,9 @@ const EmployeePortal = ({ companyId }) => {
                   <div><strong>Tu plan está listo para comenzar</strong><p>Agrega un indicador propio o consulta aquí los que te asigne la organización.</p></div>
                 </div>
               )}
-            </section>
+            </section>}
 
-            <section id="employee-personal-meetings" className="employee-meetings-section mb-4">
+            {activeEmployeeSection === 'agenda' && <section id="employee-personal-meetings" className="employee-meetings-section mb-4">
               <div className="employee-section-heading mb-3">
                 <div className="employee-section-icon employee-section-icon-personal"><CalendarDays size={19} /></div>
                 <div className="flex-grow-1">
@@ -1367,9 +1359,9 @@ const EmployeePortal = ({ companyId }) => {
                   <div><strong>Aún no tienes reuniones personales</strong><p>Agrega una a tu registro o aparecerá aquí cuando recibas una invitación personal.</p></div>
                 </div>
               )}
-            </section>
+            </section>}
 
-            <section id="employee-company-meetings" className="employee-meetings-section mb-4">
+            {activeEmployeeSection === 'company' && <section id="employee-company-meetings" className="employee-meetings-section mb-4">
               <div className="employee-section-heading mb-3">
                 <div className="employee-section-icon"><Building2 size={19} /></div>
                 <div className="flex-grow-1">
@@ -1377,17 +1369,40 @@ const EmployeePortal = ({ companyId }) => {
                   <h2>Reuniones de la empresa</h2>
                   <p>Próximas reuniones de tu área y de toda la empresa.</p>
                 </div>
-                <Badge bg="primary" className="employee-count-badge">{companyMeetings.length}</Badge>
+                <Badge bg="primary" className="employee-count-badge">{filteredCompanyMeetings.length}</Badge>
+              </div>
+              <div className="employee-meeting-date-filter mb-3">
+                <Form.Group className="employee-meeting-date-control">
+                  <Form.Label htmlFor="company-meeting-date">Buscar reuniones por fecha</Form.Label>
+                  <Form.Control
+                    id="company-meeting-date"
+                    type="date"
+                    value={companyMeetingDate}
+                    onChange={event => setCompanyMeetingDate(event.target.value)}
+                  />
+                </Form.Group>
+                {companyMeetingDate && (
+                  <Button type="button" variant="outline-secondary" size="sm" onClick={() => setCompanyMeetingDate('')}>
+                    Limpiar fecha
+                  </Button>
+                )}
               </div>
               {companyMeetings.length ? (
-                <div className="row g-3">{companyMeetings.map(renderMeeting)}</div>
+                filteredCompanyMeetings.length ? (
+                  <div className="row g-3">{filteredCompanyMeetings.map(meeting => renderMeeting(meeting, true))}</div>
+                ) : (
+                  <div className="employee-empty-state">
+                    <div className="employee-empty-icon"><CalendarDays size={21} /></div>
+                    <div><strong>No hay reuniones en esa fecha</strong><p>Prueba otra fecha o limpia el filtro.</p></div>
+                  </div>
+                )
               ) : (
                 <div className="employee-empty-state">
                   <div className="employee-empty-icon"><CalendarDays size={21} /></div>
                   <div><strong>Todo al día</strong><p>No tienes reuniones próximas de empresa.</p></div>
                 </div>
               )}
-            </section>
+            </section>}
 
           </>
         )}

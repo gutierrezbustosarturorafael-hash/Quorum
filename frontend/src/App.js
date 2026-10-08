@@ -1,21 +1,32 @@
-import React, { useState, useEffect } from 'react';
-import { Container, Navbar, Nav, Button, Modal } from 'react-bootstrap';
+import React, { lazy, Suspense, useState, useEffect } from 'react';
+import { Container, Navbar, Nav, Button, Modal, Dropdown } from 'react-bootstrap';
 import './App.css';
-import MeetingManager from './components/MeetingManager';
-import StrategicPlan from './components/StrategicPlan';
-import Dashboard from './components/Dashboard';
-import AuthModal from './components/AuthModal';
-import LightRays from './components/LightRays/LightRays';
 import GooeyNav from './components/GooeyNav/GooeyNav';
-import Settings from './components/Settings';
 import ApiService from './services/apiService';
-import ReviewerPanel from './components/ReviewerPanel';
-import EmployeePortal from './components/EmployeePortal';
+
+const MeetingManager = lazy(() => import('./components/MeetingManager'));
+const StrategicPlan = lazy(() => import('./components/StrategicPlan'));
+const Dashboard = lazy(() => import('./components/Dashboard'));
+const AuthModal = lazy(() => import('./components/AuthModal'));
+const Settings = lazy(() => import('./components/Settings'));
+const ReviewerPanel = lazy(() => import('./components/ReviewerPanel'));
+const EmployeePortal = lazy(() => import('./components/EmployeePortal'));
+
+const LoadingFallback = () => (
+  <div className="component-loading" role="status">
+    <span className="spinner-border spinner-border-sm text-primary" aria-hidden="true" />
+    <span>Cargando sección...</span>
+  </div>
+);
 
 function App() {
   const employeeRoute = window.location.pathname.match(/^\/empleados(?:\/([^/]+))?\/?$/);
   if (employeeRoute) {
-    return <EmployeePortal companyId={employeeRoute[1] || ''} />;
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <EmployeePortal companyId={employeeRoute[1] || ''} />
+      </Suspense>
+    );
   }
   return <OrganizerApp />;
 }
@@ -103,11 +114,16 @@ function OrganizerApp() {
 
   useEffect(() => {
     document.body.classList.toggle('dark-theme', interfacePreferences.theme === 'dark');
-    return () => document.body.classList.remove('dark-theme');
+    document.body.classList.toggle('light-theme', interfacePreferences.theme === 'light');
+    return () => document.body.classList.remove('dark-theme', 'light-theme');
   }, [interfacePreferences.theme]);
 
   if (isReviewerPath) {
-    return <ReviewerPanel />;
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <ReviewerPanel />
+      </Suspense>
+    );
   }
 
   const loadData = async () => {
@@ -212,7 +228,7 @@ function OrganizerApp() {
 
   return (
     <div className={`App ${interfacePreferences.theme}-theme density-${interfacePreferences.density} ${interfacePreferences.animations ? '' : 'reduce-motion'}`}>
-      <Navbar bg="dark" variant="dark" expand="lg" className="app-navbar">
+      <Navbar bg={interfacePreferences.theme === 'dark' ? 'dark' : 'light'} variant={interfacePreferences.theme === 'dark' ? 'dark' : 'light'} expand="lg" className="app-navbar">
         <Container fluid>
           <Navbar.Brand className="d-flex align-items-center gap-2">
             <div className="logo-placeholder">Q</div>
@@ -230,111 +246,110 @@ function OrganizerApp() {
                   />
                 </>
               ) : (
-                <>
-                  <Button variant="outline-light" size="sm" onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}>
-                    Iniciar Sesion
-                  </Button>
-                  <Button variant="primary" size="sm" onClick={() => { setAuthMode('registro'); setShowAuthModal(true); }}>
-                    Crear Cuenta
-                  </Button>
-                </>
+                <Dropdown align="end">
+                  <Dropdown.Toggle
+                    variant={interfacePreferences.theme === 'dark' ? 'outline-light' : 'outline-dark'}
+                    size="sm"
+                    id="home-options-menu"
+                  >
+                    Opciones
+                  </Dropdown.Toggle>
+                  <Dropdown.Menu>
+                    <Dropdown.Header>Apariencia</Dropdown.Header>
+                    <Dropdown.Item
+                      active={interfacePreferences.theme === 'light'}
+                      onClick={() => updateInterfacePreferences({ theme: 'light' })}
+                    >
+                      Tema claro
+                    </Dropdown.Item>
+                    <Dropdown.Item
+                      active={interfacePreferences.theme === 'dark'}
+                      onClick={() => updateInterfacePreferences({ theme: 'dark' })}
+                    >
+                      Tema oscuro
+                    </Dropdown.Item>
+                    <Dropdown.Divider />
+                    <Dropdown.Item onClick={() => window.location.assign('/administracion')}>
+                      Acceso administrativo
+                    </Dropdown.Item>
+                  </Dropdown.Menu>
+                </Dropdown>
               )}
             </Nav>
           </Navbar.Collapse>
         </Container>
       </Navbar>
 
-      <div className="app-background-rays" aria-hidden="true">
-        <LightRays
-          active={interfacePreferences.animations}
-          raysOrigin="top-center"
-          raysColor="#3b82f6"
-          raysSpeed={0.35}
-          lightSpread={1.2}
-          rayLength={1.4}
-          fadeDistance={1.2}
-          followMouse
-          mouseInfluence={0.06}
-          noiseAmount={0.04}
-          distortion={0.02}
-        />
-      </div>
-
       <Container fluid className="main-content">
         {isAuthenticated ? (
           <>
             {activeTab === 'inicio' && (
-              <Dashboard 
-                companyData={companyData} 
-                setCompanyData={setCompanyData}
-                fodaData={fodaData} 
-                setFodaData={setFodaData}
-                reuniones={reuniones}
-                objetivos={objetivos}
-              />
+              <Suspense fallback={<LoadingFallback />}>
+                <Dashboard
+                  companyData={companyData}
+                  setCompanyData={setCompanyData}
+                  fodaData={fodaData}
+                  setFodaData={setFodaData}
+                  reuniones={reuniones}
+                  objetivos={objetivos}
+                />
+              </Suspense>
             )}
             {activeTab === 'reuniones' && (
-              <MeetingManager 
-                reuniones={reuniones}
-                setReuniones={setReuniones}
-                companyData={companyData}
-                objetivos={objetivos}
-                setObjetivos={setObjetivos}
-                meetingPreferences={meetingPreferences}
-                documentPreferences={documentPreferences}
-              />
+              <Suspense fallback={<LoadingFallback />}>
+                <MeetingManager
+                  reuniones={reuniones}
+                  setReuniones={setReuniones}
+                  companyData={companyData}
+                  objetivos={objetivos}
+                  setObjetivos={setObjetivos}
+                  meetingPreferences={meetingPreferences}
+                  documentPreferences={documentPreferences}
+                />
+              </Suspense>
             )}
             {activeTab === 'estrategico' && (
-              <StrategicPlan 
-                objetivos={objetivos}
-                setObjetivos={setObjetivos}
-                companyData={companyData}
-                reuniones={reuniones}
-              />
+              <Suspense fallback={<LoadingFallback />}>
+                <StrategicPlan
+                  objetivos={objetivos}
+                  setObjetivos={setObjetivos}
+                  companyData={companyData}
+                  reuniones={reuniones}
+                />
+              </Suspense>
             )}
             {activeTab === 'empresa' && (
-              <Settings
-                section="empresa"
-                companyData={companyData}
-                setCompanyData={setCompanyData}
-                fodaData={fodaData}
-                setFodaData={setFodaData}
-                onLogout={handleLogout}
-                interfacePreferences={interfacePreferences}
-                updateInterfacePreferences={updateInterfacePreferences}
-                meetingPreferences={meetingPreferences}
-                updateMeetingPreferences={updateMeetingPreferences}
-                documentPreferences={documentPreferences}
-                updateDocumentPreferences={updateDocumentPreferences}
-              />
+              <Suspense fallback={<LoadingFallback />}>
+                <Settings
+                  section="empresa"
+                  companyData={companyData}
+                  setCompanyData={setCompanyData}
+                  fodaData={fodaData}
+                  setFodaData={setFodaData}
+                  onLogout={handleLogout}
+                  interfacePreferences={interfacePreferences}
+                  updateInterfacePreferences={updateInterfacePreferences}
+                  meetingPreferences={meetingPreferences}
+                  updateMeetingPreferences={updateMeetingPreferences}
+                  documentPreferences={documentPreferences}
+                  updateDocumentPreferences={updateDocumentPreferences}
+                />
+              </Suspense>
             )}
           </>
         ) : (
-          <div className="text-center p-5">
+          <div className="home-landing text-center p-5">
             <h2>Bienvenido a Quorum</h2>
-            <p className="text-muted">Inicia sesion o crea una cuenta para comenzar</p>
-            <div className="d-flex gap-3 justify-content-center mt-3">
+            <p className="text-muted">Inicia sesión o crea una cuenta para comenzar</p>
+            <div className="d-flex justify-content-center mt-3">
               <Button variant="primary" onClick={() => { setAuthMode('login'); setShowAuthModal(true); }}>
-                Iniciar Sesion
-              </Button>
-              <Button variant="outline-primary" onClick={() => { setAuthMode('registro'); setShowAuthModal(true); }}>
-                Crear Cuenta
+                Iniciar sesión / Crear cuenta
               </Button>
             </div>
             <div className="mt-4">
               <p className="text-muted mb-2">¿Eres empleado?</p>
               <Button as="a" href="/empleados" variant="outline-primary">
                 Haz clic aquí para entrar
-              </Button>
-            </div>
-            <div className="admin-entry mt-5 pt-4">
-              <p className="text-muted small mb-2">¿Eres administrador?</p>
-              <Button
-                variant="outline-secondary"
-                size="sm"
-                onClick={() => window.location.assign('/administracion')}
-              >
-                Acceso administrativo
               </Button>
             </div>
           </div>
@@ -373,28 +388,35 @@ function OrganizerApp() {
           <Modal.Title>Configuración</Modal.Title>
         </Modal.Header>
         <Modal.Body>
-          <Settings
-            companyData={companyData}
-            setCompanyData={setCompanyData}
-            fodaData={fodaData}
-            setFodaData={setFodaData}
-            onLogout={handleLogout}
-            interfacePreferences={interfacePreferences}
-            updateInterfacePreferences={updateInterfacePreferences}
-            meetingPreferences={meetingPreferences}
-            updateMeetingPreferences={updateMeetingPreferences}
-            documentPreferences={documentPreferences}
-            updateDocumentPreferences={updateDocumentPreferences}
-          />
+          <Suspense fallback={<LoadingFallback />}>
+            <Settings
+              companyData={companyData}
+              setCompanyData={setCompanyData}
+              fodaData={fodaData}
+              setFodaData={setFodaData}
+              onLogout={handleLogout}
+              interfacePreferences={interfacePreferences}
+              updateInterfacePreferences={updateInterfacePreferences}
+              meetingPreferences={meetingPreferences}
+              updateMeetingPreferences={updateMeetingPreferences}
+              documentPreferences={documentPreferences}
+              updateDocumentPreferences={updateDocumentPreferences}
+            />
+          </Suspense>
         </Modal.Body>
       </Modal>
 
-      <AuthModal
-        show={showAuthModal}
-        mode={authMode}
-        onClose={() => setShowAuthModal(false)}
-        onSuccess={handleAuth}
-      />
+      {showAuthModal && (
+        <Suspense fallback={<LoadingFallback />}>
+          <AuthModal
+            show={showAuthModal}
+            mode={authMode}
+            onModeChange={setAuthMode}
+            onClose={() => setShowAuthModal(false)}
+            onSuccess={handleAuth}
+          />
+        </Suspense>
+      )}
     </div>
   );
 }
