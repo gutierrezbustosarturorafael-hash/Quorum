@@ -220,6 +220,92 @@ const validateEmployeePersonalStrategy = data => {
   }
 };
 
+const formatExportList = values => {
+  const entries = Array.isArray(values)
+    ? values.map(value => String(value || '').trim()).filter(Boolean)
+    : [];
+  return entries.length ? entries.map(value => `- ${value}`).join('\n') : '- Sin datos registrados';
+};
+
+const formatCompanyExport = ({ empresa, empleados }) => {
+  const directivos = (empresa.directivos || [])
+    .filter(directivo => directivo.activo !== false)
+    .map(directivo => `- ${directivo.nombre}${directivo.cargo || directivo.area ? ` · ${directivo.cargo || directivo.area}` : ''}`);
+  const lines = [
+    'INFORMACIÓN INSTITUCIONAL Y ANÁLISIS FODA',
+    `Empresa: ${empresa.nombre || 'Sin registrar'}`,
+    `Exportado: ${new Date().toLocaleString('es-MX')}`,
+    '',
+    'INFORMACIÓN INSTITUCIONAL',
+    'Misión:',
+    empresa.mision || 'Sin datos registrados',
+    '',
+    'Visión:',
+    empresa.vision || 'Sin datos registrados',
+    '',
+    'Valores:',
+    formatExportList(empresa.valores),
+    '',
+    'Estrategias:',
+    formatExportList(empresa.estrategias),
+    '',
+    'Metas:',
+    formatExportList(empresa.metas),
+    '',
+    'Indicadores institucionales:',
+    formatExportList(empresa.indicadores),
+    '',
+    'Departamentos:',
+    formatExportList(empresa.departamentos),
+    '',
+    'Directivos:',
+    directivos.length ? directivos.join('\n') : '- Sin directivos registrados',
+    '',
+    'ANÁLISIS FODA',
+    'Fortalezas:',
+    formatExportList(empresa.foda?.fortalezas),
+    '',
+    'Oportunidades:',
+    formatExportList(empresa.foda?.oportunidades),
+    '',
+    'Debilidades:',
+    formatExportList(empresa.foda?.debilidades),
+    '',
+    'Amenazas:',
+    formatExportList(empresa.foda?.amenazas),
+    '',
+    `PERFILES E INDICADORES DE EMPLEADOS CON CUENTA (${empleados.length})`
+  ];
+
+  empleados.forEach((empleado, index) => {
+    lines.push(
+      '',
+      `${index + 1}. ${empleado.nombre || 'Nombre pendiente'}`,
+      `Correo: ${empleado.email}`,
+      `Puesto: ${empleado.rol || 'Sin definir'}`,
+      `Área: ${empleado.area || 'Sin definir'}`,
+      `Subárea: ${empleado.subarea || 'Sin definir'}`,
+      `Teléfono: ${empleado.telefono || 'Sin registrar'}`,
+      `Personas a cargo: ${Number(empleado.trabajadoresACargo) || 0}`,
+      `Jefatura de departamento: ${empleado.esJefeDepartamento ? 'Sí' : 'No'}`,
+      `Jefatura de empresa: ${empleado.esJefeEmpresa ? 'Sí' : 'No'}`,
+      `Dirige subáreas: ${empleado.dirigeSubareas ? 'Sí' : 'No'}`,
+      `Subáreas a cargo: ${(empleado.subareas || []).join(', ') || 'Sin definir'}`,
+      'Indicadores:',
+      ...(empleado.indicadores.length
+        ? empleado.indicadores.flatMap(indicador => [
+          `- ${indicador.nombre} (${indicador.area || empleado.area || 'Sin área'})`,
+          `  Avance: ${Number(indicador.progreso) || 0}% · Estado: ${indicador.status || 'pendiente'} · Prioridad: ${indicador.prioridad || 'media'}`,
+          ...(indicador.descripcion ? [`  Descripción: ${indicador.descripcion}`] : []),
+          ...(indicador.tasks || []).map(task => `  - ${task}`)
+        ])
+        : ['- Sin indicadores registrados'])
+    );
+  });
+
+  return `\uFEFF${lines.join('\n')}\n`;
+};
+
 class EmpresaController {
   static async sendMeetingInvitation(empresaId, reunion) {
     return sendMeetingInvitation(empresaId, reunion);
@@ -322,6 +408,24 @@ class EmpresaController {
   // ============================================================
   // EMPRESA
   // ============================================================
+  static async exportCompanyText(req, res) {
+    try {
+      const data = await EmpresaModel.getCompanyExportData(req.user.empresaId);
+      res.set({
+        'Content-Type': 'text/plain; charset=utf-8',
+        'Content-Disposition': 'attachment; filename="quorum-exportacion-empresa.txt"',
+        'Cache-Control': 'no-store'
+      });
+      res.send(formatCompanyExport(data));
+    } catch (error) {
+      console.error('Export company data error:', error.message);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.statusCode ? error.message : 'No se pudieron exportar los datos de la empresa.'
+      });
+    }
+  }
+
   static async getEmpresa(req, res) {
     try {
       const empresaId = req.user.empresaId;
@@ -338,6 +442,7 @@ class EmpresaController {
           objetivos: hideSubareaObjectives(data.objetivos || [], data.directivos || [], empleados),
           reuniones: data.reuniones.map(reunion => protectMeetingDocuments(reunion, empresaId)),
           empleados,
+          organigrama: await EmpresaModel.getCompanyOrganizationChart(empresaId),
           codigoInvitacion: await EmpresaModel.getCompanyInviteCode(empresaId),
           planEstrategico: protectDocument(data.empresa?.planEstrategico, empresaId)
         }
@@ -422,7 +527,7 @@ class EmpresaController {
 
   static async registerEmployeeAccount(req, res) {
     try {
-      const { companyCode, nombre, email, password } = req.body || {};
+      const { companyCode, nombre, email, password, area, subarea } = req.body || {};
       if (!companyCode || !email || !password || String(password).length < 8) {
         return res.status(400).json({
           success: false,
@@ -443,7 +548,14 @@ class EmpresaController {
       } else {
         passwordHash = await bcrypt.hash(String(password), 10);
       }
-      const employee = await EmpresaModel.registerEmpleado({ companyCode, nombre, email, passwordHash });
+      const employee = await EmpresaModel.registerEmpleado({
+        companyCode,
+        nombre,
+        email,
+        passwordHash,
+        area,
+        subarea
+      });
       const token = jwt.sign(
         { employeeId: employee.id, empresaId: employee.empresaId, email: String(email).trim().toLowerCase(), type: 'employee-account' },
         process.env.JWT_SECRET,
@@ -454,6 +566,7 @@ class EmpresaController {
         token,
         empresaId: employee.empresaId,
         departamentos: employee.departamentos,
+        subareasPorDepartamento: employee.subareasPorDepartamento,
         profileComplete: false
       });
     } catch (error) {
@@ -545,6 +658,7 @@ class EmpresaController {
         success: true,
         data: {
           empresa: company.empresa,
+          organigrama: company.organigrama,
           reuniones: meetings.map(meeting => ({
             ...meeting,
             documentos: (meeting.documentos || []).map(documento => protectDocument(documento, req.user.empresaId))
@@ -832,6 +946,23 @@ class EmpresaController {
       res.status(error.statusCode || 500).json({
         success: false,
         message: error.statusCode ? error.message : 'No se pudieron guardar los datos del empleado.'
+      });
+    }
+  }
+
+  static async addEmployeeFromEmployeePortal(req, res) {
+    try {
+      const profile = await EmpresaModel.addEmployeeToManagedArea(
+        req.user.empresaId,
+        req.user.employeeId,
+        req.body || {}
+      );
+      res.status(201).json({ success: true, data: profile });
+    } catch (error) {
+      console.error('Add employee from employee portal error:', error.message);
+      res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.statusCode ? error.message : 'No se pudo agregar o asignar al empleado.'
       });
     }
   }
@@ -1185,6 +1316,47 @@ class EmpresaController {
         message: error.statusCode
           ? error.message
           : 'No se pudo guardar el Excel. Verifica que la reunión siga disponible e inténtalo de nuevo.'
+      });
+    }
+  }
+
+  static async deleteEmployeeMeetingSpreadsheet(req, res) {
+    try {
+      if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(req.params.documentId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'El identificador de la reunión o del documento no es válido.'
+        });
+      }
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+      if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
+        return res.status(403).json({
+          success: false,
+          message: 'No se encontró tu cuenta de empleado. Inicia sesión de nuevo.'
+        });
+      }
+      const documento = await EmpresaModel.deleteEmployeeMeetingSpreadsheet(
+        req.user.empresaId,
+        profile,
+        req.params.id,
+        req.params.documentId
+      );
+      if (documento.url) {
+        const filePath = getStoredMeetingDocumentPath(documento);
+        try {
+          await fs.promises.unlink(filePath);
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
+      }
+      return res.json({ success: true, message: 'Tu documento Excel se eliminó de la reunión.' });
+    } catch (error) {
+      console.error('Delete employee meeting spreadsheet error:', error);
+      return res.status(error.statusCode || 500).json({
+        success: false,
+        message: error.statusCode
+          ? error.message
+          : 'No se pudo eliminar el Excel. Inténtalo de nuevo o pide ayuda al responsable de Quorum.'
       });
     }
   }

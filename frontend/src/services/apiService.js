@@ -110,6 +110,25 @@ class ApiService {
     return this.request('/empresa');
   }
 
+  static async exportCompanyText() {
+    const token = localStorage.getItem('token');
+    const response = await fetch(`${API_URL}/empresa/exportar-texto`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {}
+    });
+
+    if (!response.ok) {
+      const contentType = response.headers.get('content-type') || '';
+      const errorData = contentType.includes('application/json')
+        ? await response.json()
+        : { message: await response.text() };
+      const error = new Error(errorData.message || `No se pudo exportar la información (HTTP ${response.status}).`);
+      error.status = response.status;
+      throw error;
+    }
+
+    return response.blob();
+  }
+
   static async generateCompanyInviteCode() {
     return this.request('/empresa/codigo-invitacion', { method: 'POST' });
   }
@@ -152,6 +171,21 @@ class ApiService {
     });
   }
 
+  static async addEmployeeFromEmployeePortal(token, employee) {
+    try {
+      return await this.request('/employee/team/employees', {
+        method: 'POST',
+        headers: { Authorization: ['Bearer', token].join(' ') },
+        body: JSON.stringify(employee)
+      });
+    } catch (error) {
+      if (error.code === 'API_ROUTE_NOT_FOUND') {
+        error.message = 'El servidor aún no tiene disponible la asignación de empleados desde el portal. Actualiza el backend de Quorum e inténtalo de nuevo.';
+      }
+      throw error;
+    }
+  }
+
   static async uploadEmployeeMeetingSpreadsheet(token, meetingId, file) {
     const formData = new FormData();
     formData.append('archivo', file);
@@ -170,6 +204,20 @@ class ApiService {
       throw error;
     }
     return data;
+  }
+
+  static async deleteEmployeeMeetingSpreadsheet(token, meetingId, documentId) {
+    try {
+      return await this.request(`/employee/meetings/${meetingId}/spreadsheets/${documentId}`, {
+        method: 'DELETE',
+        headers: { Authorization: ['Bearer', token].join(' ') }
+      });
+    } catch (error) {
+      if (error.code === 'API_ROUTE_NOT_FOUND') {
+        error.message = 'El servidor aún no tiene disponible la eliminación de Excel desde el portal. Actualiza el backend de Quorum e inténtalo de nuevo.';
+      }
+      throw error;
+    }
   }
 
   static async getEmployeeMeetingSpreadsheetInsights(token, meetingId, documentId) {

@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Alert, Badge, Button, Card, Container, Form, Modal, Spinner } from 'react-bootstrap';
-import { ArrowUpRight, BriefcaseBusiness, Building2, CalendarDays, Clock3, FileSpreadsheet, LogOut, MapPin, Moon, Pencil, Plus, Settings2, Sun, Target, Trash2, UserRound, X } from 'lucide-react';
+import { ArrowUpRight, BriefcaseBusiness, Building2, CalendarDays, Clock3, FileSpreadsheet, FileText, MapPin, Moon, Pencil, Plus, Settings2, Sun, Target, Trash2, UserRound, Users, X } from 'lucide-react';
 import ApiService from '../services/apiService';
 import RisingLines from './RisingLines';
 import PrivacyNotice from './PrivacyNotice';
 import ProductivityGraph from './ProductivityGraph';
+import CompanyOrganizationChart from './CompanyOrganizationChart';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const SERVER_URL = API_URL.replace(/\/api\/?$/, '').replace(/\/+$/, '');
@@ -20,6 +21,81 @@ const getInitials = value => String(value || 'Q')
   .slice(0, 2)
   .map(part => part[0]?.toLocaleUpperCase('es') || '')
   .join('');
+const normalize = value => String(value || '')
+  .trim()
+  .normalize('NFD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .toLocaleLowerCase('es');
+
+const parseCompanyTextExport = text => {
+  const lines = String(text || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
+  if (normalize(lines[0]) !== 'informacion institucional y analisis foda') {
+    throw new Error('El archivo no parece ser una exportación institucional de Quorum.');
+  }
+
+  const sections = {
+    mision: [],
+    vision: [],
+    valores: [],
+    estrategias: [],
+    metas: [],
+    fortalezas: [],
+    oportunidades: [],
+    debilidades: [],
+    amenazas: []
+  };
+  const headings = new Map([
+    ['mision', 'mision'],
+    ['vision', 'vision'],
+    ['valores', 'valores'],
+    ['estrategias', 'estrategias'],
+    ['metas', 'metas'],
+    ['fortalezas', 'fortalezas'],
+    ['oportunidades', 'oportunidades'],
+    ['debilidades', 'debilidades'],
+    ['amenazas', 'amenazas'],
+    ['indicadores institucionales', null],
+    ['departamentos', null],
+    ['directivos', null]
+  ]);
+  let activeSection = null;
+
+  lines.slice(1).forEach(line => {
+    const value = line.trim();
+    const heading = headings.get(normalize(value.replace(/:$/, '')));
+    if (heading !== undefined) {
+      activeSection = heading;
+      return;
+    }
+    if (!value) {
+      activeSection = null;
+      return;
+    }
+    if (!activeSection) return;
+
+    if (activeSection === 'mision' || activeSection === 'vision') {
+      if (normalize(value) !== 'sin datos registrados') sections[activeSection].push(value);
+      return;
+    }
+    if (!value.startsWith('-')) return;
+    const item = value.replace(/^-\s*/, '').trim();
+    if (item && normalize(item) !== 'sin datos registrados') sections[activeSection].push(item);
+  });
+
+  return {
+    misionPersonal: sections.mision.join('\n').trim(),
+    visionPersonal: sections.vision.join('\n').trim(),
+    valoresPersonales: sections.valores,
+    estrategiasPersonales: sections.estrategias,
+    metasPersonales: sections.metas,
+    fodaPersonal: {
+      fortalezas: sections.fortalezas,
+      oportunidades: sections.oportunidades,
+      debilidades: sections.debilidades,
+      amenazas: sections.amenazas
+    }
+  };
+};
 
 const documentUrl = document => {
   if (!document?.url) return '#';
@@ -135,6 +211,9 @@ const EmployeePortal = ({ companyId }) => {
   const [showPersonalStrategyForm, setShowPersonalStrategyForm] = useState(false);
   const [savingPersonalStrategy, setSavingPersonalStrategy] = useState(false);
   const [personalStrategyError, setPersonalStrategyError] = useState('');
+  const [importingCompanyText, setImportingCompanyText] = useState(false);
+  const [companyImportMessage, setCompanyImportMessage] = useState('');
+  const companyImportInputRef = useRef(null);
   const [personalStrategyDraft, setPersonalStrategyDraft] = useState({
     misionPersonal: '',
     visionPersonal: '',
@@ -149,6 +228,8 @@ const EmployeePortal = ({ companyId }) => {
   });
   const [accessMode, setAccessMode] = useState(companyId ? 'login' : 'register');
   const [account, setAccount] = useState({ companyCode: '', nombre: '', email: '', password: '' });
+  const [registrationArea, setRegistrationArea] = useState('');
+  const [registrationSubarea, setRegistrationSubarea] = useState('');
   const [profileForm, setProfileForm] = useState({
     nombre: '', rol: '', area: '', subarea: '', dirigeSubareas: false, subareas: '',
     esJefeDepartamento: false, esJefeEmpresa: false, jefatura: '',
@@ -158,10 +239,17 @@ const EmployeePortal = ({ companyId }) => {
   const [registrationCompany, setRegistrationCompany] = useState(null);
   const [editingProfile, setEditingProfile] = useState(false);
   const [companyLookupError, setCompanyLookupError] = useState('');
+  const [teamEmployeeDraft, setTeamEmployeeDraft] = useState({ nombre: '', email: '', area: '', subarea: '' });
+  const [teamEmployeeError, setTeamEmployeeError] = useState('');
+  const [teamEmployeeMessage, setTeamEmployeeMessage] = useState('');
+  const [savingTeamEmployee, setSavingTeamEmployee] = useState(false);
+  const [teamAreaFilter, setTeamAreaFilter] = useState('');
   const [lookingUpCompany, setLookingUpCompany] = useState(false);
   const [token, setToken] = useState('');
   const [portal, setPortal] = useState(null);
   const [uploadingSpreadsheetMeetingId, setUploadingSpreadsheetMeetingId] = useState('');
+  const [pendingSpreadsheetFiles, setPendingSpreadsheetFiles] = useState({});
+  const [deletingSpreadsheetDocumentId, setDeletingSpreadsheetDocumentId] = useState('');
   const [spreadsheetUploadErrors, setSpreadsheetUploadErrors] = useState({});
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -235,6 +323,11 @@ const EmployeePortal = ({ companyId }) => {
     setSpreadsheetUploadErrors(current => ({ ...current, [meetingId]: '' }));
     try {
       await ApiService.uploadEmployeeMeetingSpreadsheet(token, meetingId, file);
+      setPendingSpreadsheetFiles(current => {
+        const next = { ...current };
+        delete next[meetingId];
+        return next;
+      });
       await loadPortal(token);
     } catch (uploadError) {
       setSpreadsheetUploadErrors(current => ({
@@ -243,6 +336,26 @@ const EmployeePortal = ({ companyId }) => {
       }));
     } finally {
       setUploadingSpreadsheetMeetingId('');
+    }
+  };
+
+  const deleteMeetingSpreadsheet = async (meeting, document) => {
+    const meetingId = String(meeting._id || meeting.id);
+    const documentId = String(document._id || '');
+    if (!token || !documentId
+      || !window.confirm(`¿Eliminar "${document.nombreArchivo || 'este Excel'}" de la reunión?`)) return;
+    setDeletingSpreadsheetDocumentId(documentId);
+    setSpreadsheetUploadErrors(current => ({ ...current, [meetingId]: '' }));
+    try {
+      await ApiService.deleteEmployeeMeetingSpreadsheet(token, meetingId, documentId);
+      await loadPortal(token);
+    } catch (deleteError) {
+      setSpreadsheetUploadErrors(current => ({
+        ...current,
+        [meetingId]: deleteError.message || 'No se pudo eliminar el Excel.'
+      }));
+    } finally {
+      setDeletingSpreadsheetDocumentId('');
     }
   };
 
@@ -307,6 +420,12 @@ const EmployeePortal = ({ companyId }) => {
     }
     return choices;
   };
+  const subareasForRegistrationArea = (() => {
+    const matchingArea = Object.keys(registrationCompany?.subareasPorDepartamento || {}).find(
+      name => normalize(name) === normalize(registrationArea)
+    );
+    return matchingArea ? registrationCompany.subareasPorDepartamento[matchingArea] || [] : [];
+  })();
   const employeeProfilePayload = form => ({
     ...form,
     esJefeDepartamento: form.jefatura === 'departamento',
@@ -318,6 +437,8 @@ const EmployeePortal = ({ companyId }) => {
     setCompanyLookupError('');
     setRegistrationCompany(null);
     setRegistrationDepartments([]);
+    setRegistrationArea('');
+    setRegistrationSubarea('');
     setLookingUpCompany(true);
     try {
       const response = await ApiService.getEmployeeCompanyByCode(account.companyCode);
@@ -333,29 +454,29 @@ const EmployeePortal = ({ companyId }) => {
   const submitAccount = async event => {
     event.preventDefault();
     setError('');
+    if (accessMode === 'register' && (!registrationCompany || !registrationArea)) {
+      setError('Busca la empresa y selecciona el departamento en el que trabajas.');
+      return;
+    }
+    if (accessMode === 'register'
+      && subareasForRegistrationArea.length
+      && !registrationSubarea) {
+      setError('Selecciona el área derivada en la que estás asignado.');
+      return;
+    }
     setLoading(true);
     try {
       const response = accessMode === 'register'
-        ? await ApiService.registerEmployeeAccount(account)
+        ? await ApiService.registerEmployeeAccount({
+          ...account,
+          area: registrationArea,
+          subarea: registrationSubarea
+        })
         : await ApiService.employeeAccountLogin(account.email, account.password);
       sessionStorage.setItem(tokenStorageKey(response.empresaId), response.token);
       sessionStorage.setItem('quorumEmployeeCompanyId', response.empresaId);
       if (accessMode === 'register') {
         setRegistrationDepartments(response.departamentos || []);
-        try {
-          await ApiService.completeEmployeeProfile(response.token, employeeProfilePayload({
-            ...profileForm,
-            nombre: account.nombre
-          }));
-        } catch (profileError) {
-          if (String(response.empresaId) !== String(companyId)) {
-            window.location.assign(`/empleados/${response.empresaId}`);
-            return;
-          }
-          setToken(response.token);
-          await loadPortal(response.token);
-          throw profileError;
-        }
       }
       if (String(response.empresaId) !== String(companyId)) {
         window.location.assign(`/empleados/${response.empresaId}`);
@@ -388,6 +509,25 @@ const EmployeePortal = ({ companyId }) => {
     }
   };
 
+  const addEmployeeToTeam = async event => {
+    event.preventDefault();
+    setTeamEmployeeError('');
+    setTeamEmployeeMessage('');
+    setSavingTeamEmployee(true);
+    try {
+      const response = await ApiService.addEmployeeFromEmployeePortal(token, teamEmployeeDraft);
+      setTeamEmployeeDraft({ nombre: '', email: '', area: '', subarea: '' });
+      await loadPortal(token);
+      setTeamEmployeeMessage(response.data.tieneCuenta
+        ? 'La cuenta existente quedó vinculada al área y empresa seleccionadas.'
+        : 'La persona quedó en el directorio. Comparte el código de invitación de la empresa para que cree su acceso.');
+    } catch (requestError) {
+      setTeamEmployeeError(requestError.message || 'No se pudo agregar al empleado.');
+    } finally {
+      setSavingTeamEmployee(false);
+    }
+  };
+
   const leavePortal = () => {
     const activeCompanyId = companyId || sessionStorage.getItem('quorumEmployeeCompanyId');
     if (activeCompanyId) sessionStorage.removeItem(tokenStorageKey(activeCompanyId));
@@ -397,8 +537,9 @@ const EmployeePortal = ({ companyId }) => {
   };
 
   const missingProfileFields = portal?.missingProfileFields || [];
+  const assignmentPending = Boolean(portal?.profile && portal.profile.asignacionConfirmada === false);
   const profileNeedsCompletion = Boolean(portal?.profile && (!portal.profileComplete || missingProfileFields.length));
-  const showProfileForm = profileNeedsCompletion || editingProfile;
+  const showProfileForm = !assignmentPending && (profileNeedsCompletion || editingProfile);
   const meetings = portal?.reuniones || [];
   const personalRecords = portal?.reunionesPersonales || [];
   const personalObjectives = portal?.indicadoresPersonales || [];
@@ -407,6 +548,26 @@ const EmployeePortal = ({ companyId }) => {
   const filteredCompanyMeetings = companyMeetingDate
     ? companyMeetings.filter(meeting => String(meeting.fecha || '').slice(0, 10) === companyMeetingDate)
     : companyMeetings;
+  const sortMeetingsByDate = meetings => [...meetings].sort((left, right) =>
+    `${left.fecha || ''}T${left.hora || '00:00'}`.localeCompare(`${right.fecha || ''}T${right.hora || '00:00'}`)
+  );
+  const sortedFilteredCompanyMeetings = sortMeetingsByDate(filteredCompanyMeetings);
+  const sortedPersonalAgenda = [
+    ...personalRecords.map(meeting => ({ ...meeting, employeeAgendaType: 'record' })),
+    ...personalMeetings.map(meeting => ({ ...meeting, employeeAgendaType: 'meeting' }))
+  ].sort((left, right) =>
+    `${left.fecha || ''}T${left.hora || '00:00'}`.localeCompare(`${right.fecha || ''}T${right.hora || '00:00'}`)
+  );
+  const managedTeamAreas = [...new Set([
+    portal?.profile?.area,
+    ...(portal?.profile?.areasACargo || [])
+  ].filter(Boolean))];
+  const teamMembers = portal?.indicadoresEquipo || [];
+  const filteredTeamMembers = teamAreaFilter
+    ? teamMembers.filter(employee => String(employee.area || '').toLowerCase() === teamAreaFilter.toLowerCase())
+    : teamMembers;
+  const canManageTeam = portal?.profile?.rol === 'directivo'
+    && (portal.profile.esJefeEmpresa || portal.profile.esJefeDepartamento || portal.profile.dirigeSubareas);
 
   const toggleCompanyMeeting = meetingId => {
     setExpandedCompanyMeetingIds(current => {
@@ -513,6 +674,7 @@ const EmployeePortal = ({ companyId }) => {
         amenazas: listFromLines(personalStrategyDraft.amenazas)
       }
     };
+
     if (portal.profile.esJefeDepartamento) {
       strategy.trabajadoresACargo = Number(personalStrategyDraft.trabajadoresACargo) || 0;
     }
@@ -524,6 +686,91 @@ const EmployeePortal = ({ companyId }) => {
       setPersonalStrategyError(requestError.message || 'No se pudo guardar tu información personal. Inténtalo de nuevo.');
     } finally {
       setSavingPersonalStrategy(false);
+    }
+  };
+
+  const importCompanyText = async event => {
+    const input = event.currentTarget;
+    const file = input.files?.[0];
+    input.value = '';
+    if (!file || !token) return;
+    setCompanyImportMessage('');
+    if (!file.name.toLocaleLowerCase('es').endsWith('.txt')) {
+      setCompanyImportMessage('Selecciona el archivo de texto .txt exportado desde Quorum.');
+      return;
+    }
+
+    setImportingCompanyText(true);
+    try {
+      const imported = parseCompanyTextExport(await file.text());
+      const profile = portal?.profile || {};
+      const strategy = {};
+      const importedMission = imported.misionPersonal;
+      const importedVision = imported.visionPersonal;
+
+      if (!String(profile.misionPersonal || '').trim() && importedMission) {
+        strategy.misionPersonal = importedMission;
+      }
+      if (!String(profile.visionPersonal || '').trim() && importedVision) {
+        strategy.visionPersonal = importedVision;
+      }
+
+      const mergeLists = (current, additions) => {
+        const merged = [...(Array.isArray(current) ? current : [])];
+        const known = new Set(merged.map(normalize));
+        additions.forEach(item => {
+          if (!known.has(normalize(item))) {
+            merged.push(item);
+            known.add(normalize(item));
+          }
+        });
+        return merged;
+      };
+      const listFields = [
+        ['valoresPersonales', imported.valoresPersonales],
+        ['estrategiasPersonales', imported.estrategiasPersonales],
+        ['metasPersonales', imported.metasPersonales]
+      ];
+      listFields.forEach(([field, additions]) => {
+        if (!additions.length) return;
+        const existing = Array.isArray(profile[field]) ? profile[field] : [];
+        const merged = mergeLists(existing, additions);
+        if (merged.length > existing.length) strategy[field] = merged;
+      });
+
+      const currentFoda = profile.fodaPersonal || {};
+      const fodaPersonal = {};
+      let hasFodaChanges = false;
+      ['fortalezas', 'oportunidades', 'debilidades', 'amenazas'].forEach(section => {
+        const additions = imported.fodaPersonal[section];
+        const existing = Array.isArray(currentFoda[section]) ? currentFoda[section] : [];
+        fodaPersonal[section] = mergeLists(existing, additions);
+        if (fodaPersonal[section].length > existing.length) hasFodaChanges = true;
+      });
+      if (hasFodaChanges) strategy.fodaPersonal = fodaPersonal;
+
+      const personalLists = [
+        ...listFields.map(([field]) => strategy[field]),
+        ...(strategy.fodaPersonal ? Object.values(strategy.fodaPersonal) : [])
+      ].filter(Boolean);
+      if (personalLists.some(items => items.length > 30 || items.some(item => item.length > 200))) {
+        throw new Error('El archivo tiene listas que superan los límites del plan personal (30 elementos de hasta 200 caracteres).');
+      }
+      if (strategy.misionPersonal?.length > 3000 || strategy.visionPersonal?.length > 3000) {
+        throw new Error('La misión o visión del archivo supera el límite de 3000 caracteres.');
+      }
+      if (!Object.keys(strategy).length) {
+        setCompanyImportMessage('No se encontraron datos nuevos para agregar. La información personal existente se conservó.');
+        return;
+      }
+
+      await ApiService.updateEmployeePersonalStrategy(token, strategy);
+      await loadPortal(token);
+      setCompanyImportMessage('La información del archivo se agregó a tu plan personal sin reemplazar los datos que ya tenías.');
+    } catch (importError) {
+      setCompanyImportMessage(importError.message || 'No se pudo importar la información del archivo.');
+    } finally {
+      setImportingCompanyText(false);
     }
   };
 
@@ -694,21 +941,42 @@ const EmployeePortal = ({ companyId }) => {
         {meeting.objetivo && <p className="employee-meeting-objective">{meeting.objetivo}</p>}
         {(meeting.documentos || []).length > 0 && (
           <div className="employee-meeting-documents">
-            {meeting.documentos.map(document => (
-              <Button
-                key={document._id || document.url}
-                as="a"
-                href={documentUrl(document)}
-                target="_blank"
-                rel="noreferrer"
-                size="sm"
-                variant="outline-primary"
-              >
-                {String(document.tipo || '').toUpperCase() === 'PDF'
-                  ? <>Abrir presentación <ArrowUpRight size={15} /></>
-                  : <><FileSpreadsheet size={15} /> {document.nombreArchivo || 'Excel del área'}{document.nombreCargador ? ` · ${document.nombreCargador}` : ''}</>}
-              </Button>
-            ))}
+            {meeting.documentos.map(document => {
+              const documentOwnerId = document.empleadoId?._id || document.empleadoId;
+              const canDeleteDocument = document.origen === 'empleado'
+                && String(documentOwnerId || '') === String(portal?.profile?._id || '');
+              return (
+                <div className="employee-meeting-document-action" key={document._id || document.url}>
+                  <Button
+                    as="a"
+                    href={documentUrl(document)}
+                    target="_blank"
+                    rel="noreferrer"
+                    size="sm"
+                    variant="outline-primary"
+                  >
+                    {String(document.tipo || '').toUpperCase() === 'PDF'
+                      ? <>Abrir presentación <ArrowUpRight size={15} /></>
+                      : <><FileSpreadsheet size={15} /> {document.nombreArchivo || 'Excel del área'}{document.nombreCargador ? ` · ${document.nombreCargador}` : ''}</>}
+                  </Button>
+                  {canDeleteDocument && (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline-danger"
+                      aria-label={`Eliminar ${document.nombreArchivo || 'Excel'}`}
+                      title="Eliminar mi Excel"
+                      onClick={() => deleteMeetingSpreadsheet(meeting, document)}
+                      disabled={deletingSpreadsheetDocumentId === String(document._id)}
+                    >
+                      {deletingSpreadsheetDocumentId === String(document._id)
+                        ? <Spinner size="sm" />
+                        : <Trash2 size={15} />}
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
         {canUploadSpreadsheet && (
@@ -724,14 +992,44 @@ const EmployeePortal = ({ companyId }) => {
                 disabled={uploadingSpreadsheetMeetingId === meetingId}
                 onChange={event => {
                   const file = event.target.files?.[0];
-                  if (file) uploadMeetingSpreadsheet(meeting, file);
+                  if (file) {
+                    setPendingSpreadsheetFiles(current => ({ ...current, [meetingId]: file }));
+                    setSpreadsheetUploadErrors(current => ({ ...current, [meetingId]: '' }));
+                  }
                   event.target.value = '';
                 }}
               />
               <Form.Text className="text-muted">
-                Puedes cargarlo directamente aquí; no necesitas que lo suba el organizador. Solo se aceptan archivos de Excel.
+                Selecciona un Excel y pulsa «Subir documento» para confirmar la carga.
               </Form.Text>
             </Form.Group>
+            {pendingSpreadsheetFiles[meetingId] && (
+              <div className="d-flex flex-wrap align-items-center gap-2">
+                <span className="small text-muted">{pendingSpreadsheetFiles[meetingId].name}</span>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="primary"
+                  onClick={() => uploadMeetingSpreadsheet(meeting, pendingSpreadsheetFiles[meetingId])}
+                  disabled={uploadingSpreadsheetMeetingId === meetingId}
+                >
+                  <FileSpreadsheet size={15} className="me-1" />Subir documento
+                </Button>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline-secondary"
+                  onClick={() => setPendingSpreadsheetFiles(current => {
+                    const next = { ...current };
+                    delete next[meetingId];
+                    return next;
+                  })}
+                  disabled={uploadingSpreadsheetMeetingId === meetingId}
+                >
+                  Cancelar
+                </Button>
+              </div>
+            )}
             {spreadsheetUploadErrors[meetingId] && (
               <Alert variant="danger" className="w-100 mb-0 py-2">{spreadsheetUploadErrors[meetingId]}</Alert>
             )}
@@ -761,17 +1059,38 @@ const EmployeePortal = ({ companyId }) => {
 
   return (
     <div className={`employee-portal-page ${employeeTheme}-theme ${largeText ? 'employee-large-text' : ''} ${reduceMotion ? 'employee-reduced-motion' : ''}`}>
-      <Container className="employee-portal-shell py-4 py-lg-5">
-        <header className="employee-portal-header app-navbar">
-          <div className="employee-brand-mark" aria-label="Quorum">Q</div>
-          <div className="employee-portal-heading">
-            <div className="employee-portal-eyebrow">
-              <span className="employee-eyebrow-dot" />
-              Quorum · Portal de empleados
-            </div>
-            <h1>Portal de empleados</h1>
-            <p>{portal?.empresa?.nombre || 'Reuniones, indicadores e información de tu empresa.'}</p>
+      <header className="employee-portal-header app-navbar">
+        <Container fluid className="employee-portal-header-inner">
+          <div className="employee-portal-brand">
+            <div className="logo-placeholder" aria-hidden="true">Q</div>
+            <span className="brand-text">Quorum</span>
+            <span className="employee-portal-product">Portal de empleados</span>
           </div>
+          {portal && !loading && (
+            <nav className="employee-portal-nav" aria-label="Secciones de tu portal">
+              {portal.profileComplete && (
+                <>
+                  <button type="button" aria-pressed={activeEmployeeSection === 'plan'} className={activeEmployeeSection === 'plan' ? 'active' : ''} onClick={() => setActiveEmployeeSection('plan')}>
+                    Mi plan
+                  </button>
+                  <button type="button" aria-pressed={activeEmployeeSection === 'agenda'} className={activeEmployeeSection === 'agenda' ? 'active' : ''} onClick={() => setActiveEmployeeSection('agenda')}>
+                    Mi agenda
+                  </button>
+                  <button type="button" aria-pressed={activeEmployeeSection === 'company'} className={activeEmployeeSection === 'company' ? 'active' : ''} onClick={() => setActiveEmployeeSection('company')}>
+                    Reuniones de empresa
+                  </button>
+                </>
+              )}
+              <button type="button" aria-pressed={activeEmployeeSection === 'organization'} className={activeEmployeeSection === 'organization' ? 'active' : ''} onClick={() => setActiveEmployeeSection('organization')}>
+                Organigrama
+              </button>
+              {canManageTeam && portal.profileComplete && (
+                <button type="button" aria-pressed={activeEmployeeSection === 'team'} className={activeEmployeeSection === 'team' ? 'active' : ''} onClick={() => setActiveEmployeeSection('team')}>
+                  Equipo
+                </button>
+              )}
+            </nav>
+          )}
           <div className="employee-header-actions">
             <Button
               variant="outline-secondary"
@@ -780,56 +1099,42 @@ const EmployeePortal = ({ companyId }) => {
               aria-expanded={showEmployeeSettings}
               aria-controls="employee-settings"
             >
-              <Settings2 size={17} />
               <span>Configuración</span>
             </Button>
             {portal && (
               <>
                 {!profileNeedsCompletion && (
                   <Button variant="outline-primary" onClick={() => setEditingProfile(true)}>
-                    <UserRound size={16} /><span>Mi perfil</span>
+                    <span>Mi perfil</span>
                   </Button>
                 )}
-                <Button variant="outline-secondary" onClick={leavePortal} aria-label="Cerrar sesión" title="Cerrar sesión">
-                  <LogOut size={17} /><span className="d-lg-none">Salir</span>
+                <Button variant="outline-secondary" onClick={leavePortal}>
+                  <span>Cerrar sesión</span>
                 </Button>
               </>
             )}
             <Button as="a" href="/" variant="link" className="employee-home-link">Inicio</Button>
           </div>
-        </header>
-
-        {portal?.profileComplete && !loading && (
+        </Container>
+      </header>
+      <Container fluid className="employee-portal-shell">
+        {portal && !loading && (
           <>
-            <section className="employee-dashboard-hero dashboard-hero mb-3">
+            <section className="employee-dashboard-hero dashboard-hero mb-4">
               <RisingLines className="dashboard-rising-lines" />
               <div>
-                <span className="dashboard-eyebrow">Panel de empleado</span>
+                <span className="dashboard-eyebrow">{assignmentPending ? 'Acceso pendiente de asignación' : 'Panel de empleado'}</span>
                 <h1 className="dashboard-title">
                   Hola, {portal.profile.nombre?.trim().split(/\s+/)[0] || 'bienvenido'}
                 </h1>
                 <p className="dashboard-subtitle mb-0">
-                  Consulta tu plan, organiza tus reuniones y mantente al día con {portal.empresa?.nombre || 'tu empresa'}.
+                  {assignmentPending
+                    ? `Tu cuenta de ${portal.empresa?.nombre || 'la empresa'} fue creada. Un directivo debe asignarte un área antes de habilitar tu espacio.`
+                    : `Consulta tu plan, organiza tus reuniones y mantente al día con ${portal.empresa?.nombre || 'tu empresa'}.`}
                 </p>
               </div>
               <div className="dashboard-hero-mark" aria-hidden="true"><span>Q</span></div>
             </section>
-            <nav className="employee-portal-nav mb-4" aria-label="Secciones de tu portal">
-              <button type="button" aria-pressed={activeEmployeeSection === 'plan'} className={activeEmployeeSection === 'plan' ? 'active' : ''} onClick={() => setActiveEmployeeSection('plan')}>
-                <Target size={16} />Mi plan
-              </button>
-              <button type="button" aria-pressed={activeEmployeeSection === 'agenda'} className={activeEmployeeSection === 'agenda' ? 'active' : ''} onClick={() => setActiveEmployeeSection('agenda')}>
-                <CalendarDays size={16} />Mi agenda
-              </button>
-              <button type="button" aria-pressed={activeEmployeeSection === 'company'} className={activeEmployeeSection === 'company' ? 'active' : ''} onClick={() => setActiveEmployeeSection('company')}>
-                <Building2 size={16} />Reuniones de empresa
-              </button>
-              {(portal.profile?.esJefeDepartamento || portal.profile?.esJefeEmpresa) && (
-                <button type="button" aria-pressed={activeEmployeeSection === 'team'} className={activeEmployeeSection === 'team' ? 'active' : ''} onClick={() => setActiveEmployeeSection('team')}>
-                  <BriefcaseBusiness size={16} />Equipo
-                </button>
-              )}
-            </nav>
           </>
         )}
 
@@ -918,12 +1223,46 @@ const EmployeePortal = ({ companyId }) => {
                 <div className="flex-grow-1">
                   <span className="employee-profile-caption">TU PROPÓSITO</span>
                   <h2>Mi propósito y análisis personal</h2>
-                  <p>Tu misión, visión y FODA personales; no modifican la información de la empresa.</p>
+                  <p>Tu misión, visión y FODA personales; no modifican la información de la empresa. Puedes migrar aquí datos de una exportación anterior.</p>
                 </div>
-                <Button variant="outline-primary" onClick={openPersonalStrategyForm}>
-                  <Pencil size={15} /><span>Editar mi plan</span>
-                </Button>
+                <div className="d-flex flex-wrap gap-2">
+                  <Form.Control
+                    ref={companyImportInputRef}
+                    type="file"
+                    accept=".txt,text/plain"
+                    className="d-none"
+                    onChange={importCompanyText}
+                    aria-label="Seleccionar exportación de empresa en formato de texto"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline-primary"
+                    onClick={() => companyImportInputRef.current?.click()}
+                    disabled={assignmentPending || importingCompanyText || savingPersonalStrategy}
+                    title={assignmentPending ? 'Un directivo debe asignarte un área antes de importar tus datos.' : undefined}
+                  >
+                    {importingCompanyText
+                      ? <><Spinner size="sm" className="me-1" />Importando...</>
+                      : <><FileText size={15} /><span>Importar datos (.txt)</span></>}
+                  </Button>
+                  <Button variant="outline-primary" onClick={openPersonalStrategyForm}>
+                    <Pencil size={15} /><span>Editar mi plan</span>
+                  </Button>
+                </div>
               </div>
+              {companyImportMessage && (
+                <Alert
+                  variant={companyImportMessage.startsWith('La información del archivo')
+                    ? 'success'
+                    : companyImportMessage.startsWith('No se encontraron datos nuevos')
+                      ? 'info'
+                      : 'danger'}
+                  className="py-2"
+                  role="status"
+                >
+                  {companyImportMessage}
+                </Alert>
+              )}
               <div className="row g-3">
                 <div className="col-md-6">
                   <div className="employee-personal-strategy-block h-100">
@@ -1009,7 +1348,7 @@ const EmployeePortal = ({ companyId }) => {
                 {accessMode === 'login' && <Alert variant="info">Ingresa con el correo y la contraseña de tu cuenta de empleado.</Alert>}
                 {accessMode === 'register' && (
                   <Alert variant="info">
-                    Crea tu cuenta de empleado con el código de invitación y selecciona tu rol, área y responsabilidad de jefatura. Si ya tienes una cuenta organizadora de esta empresa, usa el mismo correo y contraseña.
+                    Busca la empresa con el código, selecciona tu departamento y, si aparece, el área derivada donde trabajas. Un directivo confirmará tu asignación antes de habilitar la información interna. Si ya tienes una cuenta organizadora de esta empresa, usa el mismo correo y contraseña.
                   </Alert>
                 )}
                 <div className="employee-auth-tabs mb-4" role="group" aria-label="Acceso de empleados">
@@ -1032,6 +1371,8 @@ const EmployeePortal = ({ companyId }) => {
                               setAccount(current => ({ ...current, companyCode: event.target.value }));
                               setRegistrationCompany(null);
                               setRegistrationDepartments([]);
+                              setRegistrationArea('');
+                              setRegistrationSubarea('');
                               setProfileForm(current => ({ ...current, area: '' }));
                               setCompanyLookupError('');
                             }}
@@ -1048,118 +1389,47 @@ const EmployeePortal = ({ companyId }) => {
                         )}
                         {companyLookupError && <Form.Text className="text-danger d-block">{companyLookupError}</Form.Text>}
                       </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Nombre completo</Form.Label>
-                        <Form.Control value={account.nombre} onChange={event => setAccount(current => ({ ...current, nombre: event.target.value }))} required />
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>¿Cuál es tu puesto?</Form.Label>
-                        <Form.Select
-                          value={profileForm.rol}
-                          onChange={event => setProfileForm(current => ({ ...current, rol: event.target.value }))}
-                          required
-                        >
-                          <option value="">Selecciona tu puesto</option>
-                          <option value="trabajador">Empleado / trabajador</option>
-                          <option value="directivo">Directivo</option>
-                        </Form.Select>
-                      </Form.Group>
-                      <Form.Group className="mb-3">
-                        <Form.Label>Área o departamento</Form.Label>
-                        <Form.Select
-                          value={profileForm.area}
-                          onChange={event => setProfileForm(current => ({ ...current, area: event.target.value, subarea: '' }))}
-                          required={profileForm.jefatura !== 'empresa'}
-                        >
-                          <option value="">
-                            {profileForm.jefatura === 'empresa' ? 'Dirección de empresa (sin área específica)' : 'Selecciona tu área'}
-                          </option>
-                          {employeeDepartments.map(area => <option key={area} value={area}>{area}</option>)}
-                        </Form.Select>
-                        {!employeeDepartments.length && (
-                          <Form.Text className="text-danger">
-                            La empresa aún no tiene áreas registradas. El organizador debe agregarlas antes del registro.
-                          </Form.Text>
-                        )}
-                      </Form.Group>
-                      {profileForm.jefatura !== 'empresa' && (
-                        <Form.Group className="mb-3">
-                          <Form.Label>Subárea (si perteneces a una)</Form.Label>
-                          <Form.Select
-                            value={profileForm.subarea}
-                            onChange={event => setProfileForm(current => ({ ...current, subarea: event.target.value }))}
-                            disabled={!profileForm.area}
-                          >
-                            <option value="">No pertenezco a una subárea</option>
-                            {subareasForArea(profileForm.area).map(subarea => (
-                              <option key={subarea} value={subarea}>{subarea}</option>
-                            ))}
-                          </Form.Select>
-                          {profileForm.area && !subareasForArea(profileForm.area).length && (
-                            <Form.Text className="text-muted">
-                              Si tu área tiene subáreas, su responsable debe registrarlas primero.
-                            </Form.Text>
-                          )}
-                        </Form.Group>
-                      )}
-                      <Form.Group className="mb-3">
-                        <Form.Label>¿Tienes una responsabilidad de jefatura?</Form.Label>
-                        <Form.Select
-                          value={profileForm.jefatura}
-                          onChange={event => setProfileForm(current => ({
-                            ...current,
-                            jefatura: event.target.value,
-                            rol: event.target.value === 'ninguna' ? current.rol : 'directivo'
-                          }))}
-                          required
-                        >
-                          <option value="">Selecciona una opción</option>
-                          <option value="ninguna">No soy jefe</option>
-                          <option value="departamento">Sí, soy jefe de departamento</option>
-                          <option value="empresa">Sí, soy jefe de la empresa</option>
-                        </Form.Select>
-                      </Form.Group>
-                      {profileForm.rol === 'directivo' && (
+                      {registrationCompany && (
                         <>
                           <Form.Group className="mb-3">
-                            <Form.Label>Teléfono de contacto (opcional)</Form.Label>
-                            <Form.Control
-                              value={profileForm.telefono}
-                              onChange={event => setProfileForm(current => ({ ...current, telefono: event.target.value }))}
-                            />
+                            <Form.Label>Departamento en el que trabajas</Form.Label>
+                            <Form.Select
+                              value={registrationArea}
+                              onChange={event => {
+                                setRegistrationArea(event.target.value);
+                                setRegistrationSubarea('');
+                              }}
+                              required
+                            >
+                              <option value="">Selecciona tu departamento</option>
+                              {registrationDepartments.map(area => (
+                                <option key={area} value={area}>{area}</option>
+                              ))}
+                            </Form.Select>
                           </Form.Group>
-                          <Form.Group className="mb-3">
-                            <Form.Label>Trabajadores a cargo (opcional)</Form.Label>
-                            <Form.Control
-                              type="number"
-                              min="0"
-                              value={profileForm.trabajadoresACargo}
-                              onChange={event => setProfileForm(current => ({ ...current, trabajadoresACargo: Number(event.target.value) || 0 }))}
-                            />
-                          </Form.Group>
-                          <Form.Check
-                            className="mb-3"
-                            label="También dirijo subáreas"
-                            checked={profileForm.dirigeSubareas}
-                            onChange={event => setProfileForm(current => ({ ...current, dirigeSubareas: event.target.checked }))}
-                          />
-                          {profileForm.dirigeSubareas && (
+                          {subareasForRegistrationArea.length > 0 && (
                             <Form.Group className="mb-3">
-                              <Form.Label>Subáreas a mi cargo (una por línea)</Form.Label>
-                              <Form.Control
-                                as="textarea"
-                                rows={2}
-                                value={profileForm.subareas}
-                                onChange={event => setProfileForm(current => ({ ...current, subareas: event.target.value }))}
-                                required={profileForm.dirigeSubareas}
-                              />
-                              <Form.Text className="text-muted">
-                                Estas subáreas quedarán disponibles para que los empleados indiquen a cuál pertenecen.
-                              </Form.Text>
+                              <Form.Label>Área derivada en la que estás asignado</Form.Label>
+                              <Form.Select
+                                value={registrationSubarea}
+                                onChange={event => setRegistrationSubarea(event.target.value)}
+                                required
+                                disabled={!registrationArea}
+                              >
+                                <option value="">Selecciona tu área derivada</option>
+                                {subareasForRegistrationArea.map(subarea => (
+                                  <option key={subarea} value={subarea}>{subarea}</option>
+                                ))}
+                              </Form.Select>
+                              <Form.Text>Selecciona el área derivada que corresponde a tu puesto.</Form.Text>
                             </Form.Group>
                           )}
                         </>
                       )}
+                      <Form.Group className="mb-3">
+                        <Form.Label>Nombre completo</Form.Label>
+                        <Form.Control value={account.nombre} onChange={event => setAccount(current => ({ ...current, nombre: event.target.value }))} required />
+                      </Form.Group>
                     </>
                   )}
                   <Form.Group className="mb-3">
@@ -1172,7 +1442,9 @@ const EmployeePortal = ({ companyId }) => {
                   </Form.Group>
                   <Button
                     type="submit"
-                    disabled={loading || (accessMode === 'register' && !registrationCompany)}
+                    disabled={loading || (accessMode === 'register'
+                      && (!registrationCompany || !registrationArea
+                        || (subareasForRegistrationArea.length > 0 && !registrationSubarea)))}
                     className="w-100"
                   >
                     {loading ? <><Spinner size="sm" className="me-2" />Procesando...</> : accessMode === 'register' ? 'Crear cuenta' : 'Entrar'}
@@ -1193,8 +1465,116 @@ const EmployeePortal = ({ companyId }) => {
           </Card>
         ) : (
           <>
-            {activeEmployeeSection === 'team' && (
+            {assignmentPending && (
+              <Card className="employee-objectives-card mb-4">
+                <Card.Body>
+                  <h2 className="h5">Tu cuenta está pendiente de asignación</h2>
+                  <p className="mb-0">Un directivo debe agregarte a una de sus áreas. Cuando confirme tu asignación, se habilitarán tus reuniones y el plan de trabajo.</p>
+                </Card.Body>
+              </Card>
+            )}
+            {(assignmentPending || activeEmployeeSection === 'organization') && (
+              <CompanyOrganizationChart
+                areas={portal.organigrama || []}
+                companyName={portal.empresa?.nombre || ''}
+                legalRepresentative={portal.empresa?.representanteLegal || ''}
+                departments={portal.empresa?.departamentos || []}
+                subareasByDepartment={portal.empresa?.subareasPorDepartamento || {}}
+              />
+            )}
+            {!assignmentPending && activeEmployeeSection === 'team' && (
             <>
+            <Card className="employee-objectives-card mb-4">
+              <Card.Body>
+                <div className="employee-section-heading mb-3">
+                  <div className="employee-section-icon"><Users size={19} /></div>
+                  <div>
+                    <span className="employee-profile-caption">GESTIÓN DE ÁREAS</span>
+                    <h2>Empleados de tus áreas</h2>
+                    <p className="mb-0">Agrega una persona existente o regístrala en una de las áreas principales que tienes asignadas.</p>
+                  </div>
+                </div>
+                {teamEmployeeError && <Alert variant="danger">{teamEmployeeError}</Alert>}
+                {teamEmployeeMessage && <Alert variant="success">{teamEmployeeMessage}</Alert>}
+                <Form onSubmit={addEmployeeToTeam} className="row g-3 align-items-end mb-4">
+                  <Form.Group className="col-md-3">
+                    <Form.Label>Nombre</Form.Label>
+                    <Form.Control value={teamEmployeeDraft.nombre} onChange={event => setTeamEmployeeDraft(current => ({ ...current, nombre: event.target.value }))} required />
+                  </Form.Group>
+                  <Form.Group className="col-md-3">
+                    <Form.Label>Correo electrónico</Form.Label>
+                    <Form.Control type="email" value={teamEmployeeDraft.email} onChange={event => setTeamEmployeeDraft(current => ({ ...current, email: event.target.value }))} required />
+                  </Form.Group>
+                  <Form.Group className="col-md-3">
+                    <Form.Label>Área principal</Form.Label>
+                    <Form.Select value={teamEmployeeDraft.area} onChange={event => setTeamEmployeeDraft(current => ({ ...current, area: event.target.value, subarea: '' }))} required>
+                      <option value="">Selecciona un área</option>
+                      {managedTeamAreas.map(area => <option key={area} value={area}>{area}</option>)}
+                    </Form.Select>
+                  </Form.Group>
+                  <Form.Group className="col-md-2">
+                    <Form.Label>Subárea (opcional)</Form.Label>
+                    <Form.Select value={teamEmployeeDraft.subarea} onChange={event => setTeamEmployeeDraft(current => ({ ...current, subarea: event.target.value }))} disabled={!teamEmployeeDraft.area}>
+                      <option value="">Sin subárea</option>
+                      {subareasForArea(teamEmployeeDraft.area).map(subarea => <option key={subarea} value={subarea}>{subarea}</option>)}
+                    </Form.Select>
+                  </Form.Group>
+                  <div className="col-md-1">
+                    <Button type="submit" className="w-100" disabled={savingTeamEmployee} aria-label="Agregar empleado">
+                      {savingTeamEmployee ? <Spinner size="sm" /> : <Plus size={17} />}
+                    </Button>
+                  </div>
+                </Form>
+                {teamMembers.length > 0 && (
+                  <Form.Group className="mb-3" style={{ maxWidth: 320 }}>
+                    <Form.Label>Filtrar indicadores por área</Form.Label>
+                    <Form.Select value={teamAreaFilter} onChange={event => setTeamAreaFilter(event.target.value)}>
+                      <option value="">Todas tus áreas</option>
+                      {managedTeamAreas.map(area => <option key={area} value={area}>{area}</option>)}
+                    </Form.Select>
+                  </Form.Group>
+                )}
+                {filteredTeamMembers.length ? (
+                  <div className="d-flex flex-column gap-3">
+                    {filteredTeamMembers.map(employee => (
+                      <div key={employee.empleadoId} className="company-team-member">
+                        <div className="d-flex flex-wrap justify-content-between gap-2 mb-2">
+                          <strong>{employee.nombre || employee.email}</strong>
+                          <span className="small text-muted">{employee.area || (employee.asignacionPendiente ? 'Pendiente de asignación' : 'Área pendiente')}</span>
+                        </div>
+                        {employee.asignacionPendiente && (
+                          <Alert variant="warning" className="py-2 mb-2">Esta cuenta espera que le asignes una de tus áreas; completa el formulario de arriba con su mismo correo.</Alert>
+                        )}
+                        {employee.indicadores?.length ? (
+                          <div className="row g-2">
+                            {employee.indicadores.map(objective => {
+                              const progress = Math.min(100, Math.max(0, Number(objective.progreso) || 0));
+                              return (
+                                <div className="col-lg-6" key={objective._id || objective.id}>
+                                  <div className="border rounded p-3 h-100">
+                                    <div className="d-flex justify-content-between gap-2">
+                                      <strong>{objective.nombre}</strong><span className="fw-semibold">{progress}%</span>
+                                    </div>
+                                    <div className="progress mt-2" role="progressbar" aria-label={`Avance de ${objective.nombre}`} aria-valuenow={progress} aria-valuemin="0" aria-valuemax="100">
+                                      <div className="progress-bar" style={{ width: `${progress}%` }} />
+                                    </div>
+                                    {objective.descripcion && <p className="small text-muted mb-0 mt-2">{objective.descripcion}</p>}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="small text-muted mb-0">Aún no tiene indicadores personales.</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="small text-muted mb-0">No hay empleados en las áreas asignadas.</p>
+                )}
+              </Card.Body>
+            </Card>
             {portal.profile?.rol === 'directivo' && portal.indicadoresArea?.length > 0 && (
               <Card className="employee-objectives-card mb-4">
                 <Card.Body>
@@ -1231,7 +1611,7 @@ const EmployeePortal = ({ companyId }) => {
             </>
             )}
 
-            {activeEmployeeSection === 'plan' && <section id="employee-personal-plan" className="employee-meetings-section mb-4">
+            {!assignmentPending && activeEmployeeSection === 'plan' && <section id="employee-personal-plan" className="employee-meetings-section mb-4">
               <div className="employee-section-heading mb-3">
                 <div className="employee-section-icon employee-section-icon-personal"><Target size={19} /></div>
                 <div className="flex-grow-1">
@@ -1329,7 +1709,7 @@ const EmployeePortal = ({ companyId }) => {
               )}
             </section>}
 
-            {activeEmployeeSection === 'agenda' && <section id="employee-personal-meetings" className="employee-meetings-section mb-4">
+            {!assignmentPending && activeEmployeeSection === 'agenda' && <section id="employee-personal-meetings" className="employee-meetings-section mb-4">
               <div className="employee-section-heading mb-3">
                 <div className="employee-section-icon employee-section-icon-personal"><CalendarDays size={19} /></div>
                 <div className="flex-grow-1">
@@ -1350,8 +1730,11 @@ const EmployeePortal = ({ companyId }) => {
               {personalMeetingError && <Alert variant="danger">{personalMeetingError}</Alert>}
               {personalRecords.length || personalMeetings.length ? (
                 <div className="row g-3">
-                  {personalRecords.map(renderPersonalRecord)}
-                  {personalMeetings.map(renderMeeting)}
+                  {sortedPersonalAgenda.map(meeting => (
+                    meeting.employeeAgendaType === 'record'
+                      ? renderPersonalRecord(meeting)
+                      : renderMeeting(meeting)
+                  ))}
                 </div>
               ) : (
                 <div className="employee-empty-state">
@@ -1361,7 +1744,7 @@ const EmployeePortal = ({ companyId }) => {
               )}
             </section>}
 
-            {activeEmployeeSection === 'company' && <section id="employee-company-meetings" className="employee-meetings-section mb-4">
+            {!assignmentPending && activeEmployeeSection === 'company' && <section id="employee-company-meetings" className="employee-meetings-section mb-4">
               <div className="employee-section-heading mb-3">
                 <div className="employee-section-icon"><Building2 size={19} /></div>
                 <div className="flex-grow-1">
@@ -1389,7 +1772,7 @@ const EmployeePortal = ({ companyId }) => {
               </div>
               {companyMeetings.length ? (
                 filteredCompanyMeetings.length ? (
-                  <div className="row g-3">{filteredCompanyMeetings.map(meeting => renderMeeting(meeting, true))}</div>
+                  <div className="row g-3">{sortedFilteredCompanyMeetings.map(meeting => renderMeeting(meeting, true))}</div>
                 ) : (
                   <div className="employee-empty-state">
                     <div className="employee-empty-icon"><CalendarDays size={21} /></div>

@@ -140,6 +140,7 @@ function OrganizerApp() {
           ...empresa,
           directivos,
           empleados: response.data.empleados || [],
+          organigrama: response.data.organigrama || [],
           codigoInvitacion: response.data.codigoInvitacion,
           smtpConvocatorias: response.data.smtpConvocatorias || { configured: false },
           planEstrategico: response.data.planEstrategico || empresa.planEstrategico
@@ -202,9 +203,9 @@ function OrganizerApp() {
   const tabs = [
     { key: 'inicio', label: 'Inicio' },
     { key: 'reuniones', label: 'Reuniones' },
-    { key: 'estrategico', label: 'Plan Estrategico' },
+    { key: 'estrategico', label: 'Plan estratégico' },
     { key: 'empresa', label: 'Empresa' },
-    { key: 'configuracion', label: '⚙', title: 'Configuración', ariaLabel: 'Abrir configuración' }
+    { key: 'configuracion', label: 'Configuración' }
   ];
   const handleNavigation = index => {
     const selectedTab = tabs[index]?.key;

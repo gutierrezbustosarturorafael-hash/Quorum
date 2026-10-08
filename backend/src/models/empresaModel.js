@@ -13,11 +13,13 @@ const directivoSchema = new mongoose.Schema({
   tipoPersona: { type: String, enum: ['fisica', 'moral'], default: 'fisica' },
   email: { type: String, required: true },
   area: { type: String, default: '' },
+  areasACargo: { type: [String], default: [] },
   cargo: { type: String, default: '' },
   telefono: { type: String, default: '' },
   trabajadoresACargo: { type: Number, default: 0 },
   subareas: { type: [String], default: [] },
   esJefeEmpresa: { type: Boolean, default: false },
+  asignacionConfirmada: { type: Boolean, default: true },
   activo: { type: Boolean, default: true }
 }, { timestamps: true });
 
@@ -203,6 +205,7 @@ const empleadoSchema = new mongoose.Schema({
   tieneCuenta: { type: Boolean, default: true },
   rol: { type: String, enum: ['trabajador', 'directivo', ''], default: '' },
   area: { type: String, default: '', trim: true },
+  areasACargo: { type: [String], default: [] },
   subarea: { type: String, default: '', trim: true },
   telefono: { type: String, default: '', trim: true },
   trabajadoresACargo: { type: Number, default: 0, min: 0 },
@@ -217,7 +220,8 @@ const empleadoSchema = new mongoose.Schema({
   esJefeDepartamento: { type: Boolean, default: false },
   esJefeEmpresa: { type: Boolean, default: false },
   liderazgoConfirmado: { type: Boolean, default: false },
-  jefaturaConfirmada: { type: Boolean, default: false }
+  jefaturaConfirmada: { type: Boolean, default: false },
+  asignacionConfirmada: { type: Boolean, default: true }
 }, { timestamps: true });
 
 const reunionPersonalEmpleadoSchema = new mongoose.Schema({
@@ -371,7 +375,7 @@ class EmpresaModel {
 
   static async getEmployeePersonalMeetings(empresaId, empleadoId) {
     return ReunionPersonalEmpleado.find({ empresaId, empleadoId })
-      .sort({ fecha: -1, hora: -1, createdAt: -1 })
+      .sort({ fecha: 1, hora: 1, createdAt: 1 })
       .lean();
   }
 
@@ -459,6 +463,41 @@ class EmpresaModel {
     return reunion;
   }
 
+  static async deleteEmployeeMeetingSpreadsheet(empresaId, employeeProfile, reunionId, documentoId) {
+    const reunion = await this.getEmployeeMeetingForSpreadsheetUpload(
+      empresaId,
+      employeeProfile,
+      reunionId
+    );
+    const documento = reunion.documentos.id(documentoId);
+    if (!documento
+      || documento.origen !== 'empleado'
+      || String(documento.empleadoId || '') !== String(employeeProfile._id)) {
+      const error = new Error('Solo puedes eliminar los archivos Excel que tú subiste.');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (!['XLS', 'XLSX', 'XLSB'].includes(String(documento.tipo || '').toUpperCase())) {
+      const error = new Error('Solo puedes eliminar documentos Excel que tú subiste.');
+      error.statusCode = 400;
+      throw error;
+    }
+    const deletedDocument = documento.toObject();
+    reunion.documentos.pull(documentoId);
+    const agendaArea = reunion.cronograma.find(item =>
+      normalizeArea(item.area) === normalizeArea(deletedDocument.area)
+    );
+    const sameNamedDocumentRemains = reunion.documentos.some(item =>
+      normalizeArea(item.area) === normalizeArea(deletedDocument.area)
+        && item.nombreArchivo === deletedDocument.nombreArchivo
+    );
+    if (agendaArea && !sameNamedDocumentRemains) {
+      agendaArea.documentos = agendaArea.documentos.filter(name => name !== deletedDocument.nombreArchivo);
+    }
+    await reunion.save();
+    return deletedDocument;
+  }
+
   static async getEmployeeMeetingSpreadsheetForInsights(empresaId, employeeProfile, reunionId, documentoId) {
     const reunion = await Reunion.findOne({ _id: reunionId, empresaId });
     if (!reunion) {
@@ -502,22 +541,25 @@ class EmpresaModel {
 
   static async getEmployeeTeamObjectives(empresaId, employeeProfile) {
     if (employeeProfile?.rol !== 'directivo'
-      || (!employeeProfile.esJefeEmpresa && !employeeProfile.esJefeDepartamento)) {
+      || (!employeeProfile.esJefeEmpresa && !employeeProfile.esJefeDepartamento && !employeeProfile.dirigeSubareas)) {
       return [];
     }
-    if (!employeeProfile.esJefeEmpresa && !normalizeArea(employeeProfile.area)) return [];
+    const company = await Empresa.findById(empresaId).select('departamentos');
+    if (!company) return [];
+    const managedAreas = this.getEmployeeManagedAreas(employeeProfile);
+    if (!managedAreas.length) return [];
 
     const employees = await Empleado.find({
       empresaId,
       _id: { $ne: employeeProfile._id }
     })
-      .select('_id nombre area')
+      .select('_id nombre email rol area subarea tieneCuenta passwordHash asignacionConfirmada')
       .lean();
-    const managedEmployees = employeeProfile.esJefeEmpresa
-      ? employees
-      : employees.filter(employee =>
-        normalizeArea(employee.area) === normalizeArea(employeeProfile.area)
-      );
+    const managedEmployees = employees.filter(employee =>
+      !employee.area
+        ? employee.asignacionConfirmada === false
+        : managedAreas.includes(normalizeArea(employee.area))
+    );
     if (!managedEmployees.length) return [];
 
     const employeeById = new Map(managedEmployees.map(employee => [String(employee._id), employee]));
@@ -538,13 +580,182 @@ class EmpresaModel {
       objectivesByEmployee.set(employeeId, employeeObjectives);
     });
 
-    return [...objectivesByEmployee.entries()].map(([employeeId, indicadores]) => {
-      const employee = employeeById.get(employeeId);
+    return managedEmployees.map(employee => {
+      const employeeId = String(employee._id);
       return {
         empleadoId: employeeId,
         nombre: employee.nombre,
+        email: employee.email,
+        rol: employee.rol,
         area: employee.area,
-        indicadores
+        subarea: employee.subarea,
+        tieneCuenta: Boolean(employee.passwordHash),
+        asignacionPendiente: employee.asignacionConfirmada === false,
+        indicadores: objectivesByEmployee.get(employeeId) || []
+      };
+    });
+  }
+
+  static getEmployeeManagedAreas(employeeProfile) {
+    const assignedAreas = Array.isArray(employeeProfile?.areasACargo)
+      ? employeeProfile.areasACargo
+      : [];
+    const areas = [employeeProfile?.area, ...assignedAreas];
+    return [...new Set(areas.map(normalizeArea).filter(Boolean))];
+  }
+
+  static async addEmployeeToManagedArea(empresaId, managerId, profile) {
+    const manager = await Empleado.findOne({ _id: managerId, empresaId });
+    const company = await Empresa.findById(empresaId).select('departamentos directivos');
+    if (!manager || !company
+      || manager.rol !== 'directivo'
+      || (!manager.esJefeEmpresa && !manager.esJefeDepartamento && !manager.dirigeSubareas)) {
+      const error = new Error('No tienes permisos para administrar empleados.');
+      error.statusCode = 403;
+      throw error;
+    }
+    const area = String(profile.area || '').trim();
+    const normalizedArea = normalizeArea(area);
+    const managedAreas = this.getEmployeeManagedAreas(manager);
+    if (!managedAreas.includes(normalizedArea)) {
+      const error = new Error('Solo puedes agregar personas a las áreas que tienes asignadas.');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (!(company.departamentos || []).some(department => normalizeArea(department) === normalizedArea)) {
+      const error = new Error('Selecciona un área principal registrada por el organizador.');
+      error.statusCode = 400;
+      throw error;
+    }
+    const name = String(profile.nombre || '').trim();
+    const email = String(profile.email || '').trim().toLowerCase();
+    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      const error = new Error('Ingresa el nombre y un correo electrónico válido.');
+      error.statusCode = 400;
+      throw error;
+    }
+    const subarea = String(profile.subarea || '').trim();
+    if (subarea) {
+      const registeredSubareas = this.getSubareasPorDepartamento([
+        ...(company.directivos || []),
+        ...(await Empleado.find({ empresaId, dirigeSubareas: true }).select('area subareas').lean())
+      ]);
+      const areaSubareas = Object.entries(registeredSubareas)
+        .find(([department]) => normalizeArea(department) === normalizedArea)?.[1] || [];
+      if (!areaSubareas.some(item => normalizeArea(item) === normalizeArea(subarea))) {
+        const error = new Error('Selecciona una subárea registrada por el responsable del área.');
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    let employee = await Empleado.findOne({ email });
+    if (employee && String(employee.empresaId) !== String(empresaId)) {
+      const error = new Error('Ese correo ya está vinculado a otra empresa.');
+      error.statusCode = 409;
+      throw error;
+    }
+    if (employee?.rol === 'directivo') {
+      const error = new Error('Ese correo pertenece a un directivo. Pide al organizador que gestione su asignación.');
+      error.statusCode = 409;
+      throw error;
+    }
+    if (employee?.asignacionConfirmada !== false
+      && employee?.area
+      && !managedAreas.includes(normalizeArea(employee.area))) {
+      const error = new Error('Ese empleado ya está asignado a un área que no tienes a cargo.');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (!employee) {
+      employee = new Empleado({ empresaId, email, passwordHash: null, tieneCuenta: false });
+    }
+    employee.nombre = name;
+    employee.rol = 'trabajador';
+    employee.area = area;
+    employee.areasACargo = [];
+    employee.subarea = subarea;
+    employee.esJefeDepartamento = false;
+    employee.esJefeEmpresa = false;
+    employee.dirigeSubareas = false;
+    employee.subareas = [];
+    employee.liderazgoConfirmado = true;
+    employee.jefaturaConfirmada = true;
+    employee.asignacionConfirmada = true;
+    employee.tieneCuenta = Boolean(employee.passwordHash);
+    await employee.save();
+    await IndicadorPersonalEmpleado.updateMany(
+      { empresaId, empleadoId: employee._id },
+      { $set: { area } }
+    );
+    const profileData = await this.getEmpleadoProfile(employee._id);
+    return { ...profileData, tieneCuenta: Boolean(employee.passwordHash) };
+  }
+
+  static async getCompanyOrganizationChart(empresaId) {
+    const company = await Empresa.findById(empresaId).select('departamentos directivos').lean();
+    if (!company) return [];
+    const employees = await Empleado.find({ empresaId })
+      .select('nombre email rol area areasACargo subarea esJefeDepartamento esJefeEmpresa subareas tieneCuenta passwordHash asignacionConfirmada')
+      .sort({ nombre: 1 })
+      .lean();
+    const registeredDirectors = (company.directivos || [])
+      .filter(director => director.activo !== false)
+      .map(director => ({
+        nombre: director.nombre,
+        area: director.area,
+        areasACargo: director.areasACargo || [],
+        cargo: director.cargo || (director.esJefeEmpresa ? 'Dirección de empresa' : 'Dirección de área'),
+        esJefeEmpresa: Boolean(director.esJefeEmpresa),
+        email: String(director.email || '').toLowerCase(),
+        subareas: director.subareas || []
+      }));
+    employees.filter(employee => employee.rol === 'directivo').forEach(employee => {
+      const email = String(employee.email || '').toLowerCase();
+      if (!registeredDirectors.some(director => director.email === email)) {
+        registeredDirectors.push({
+          nombre: employee.nombre,
+          area: employee.area,
+          areasACargo: employee.areasACargo || [],
+          cargo: employee.esJefeEmpresa ? 'Dirección de empresa' : 'Dirección de área',
+          esJefeEmpresa: Boolean(employee.esJefeEmpresa),
+          email,
+          subareas: employee.subareas || []
+        });
+      }
+    });
+
+    const departments = [...new Set((company.departamentos || []).map(area => String(area).trim()).filter(Boolean))];
+    return departments.map(area => {
+      const departmentKey = normalizeArea(area);
+      const directors = registeredDirectors.filter(director => {
+        const areas = director.areasACargo?.length ? director.areasACargo : [director.area];
+        return director.esJefeEmpresa
+          || areas.some(item => normalizeArea(item) === departmentKey);
+      });
+      const areaEmployees = employees.filter(employee =>
+        employee.rol !== 'directivo'
+          && employee.asignacionConfirmada !== false
+          && normalizeArea(employee.area) === departmentKey
+      );
+      const subareaNames = [...new Set([
+        ...directors.flatMap(director => director.subareas || []),
+        ...areaEmployees.map(employee => employee.subarea)
+      ].map(item => String(item || '').trim()).filter(Boolean))];
+      const subareas = subareaNames.map(name => ({
+        nombre: name,
+        empleados: areaEmployees
+          .filter(employee => normalizeArea(employee.subarea) === normalizeArea(name))
+          .map(employee => ({ nombre: employee.nombre || 'Empleado', rol: employee.rol || 'trabajador' }))
+      }));
+      const employeesWithoutSubarea = areaEmployees
+        .filter(employee => !employee.subarea)
+        .map(employee => ({ nombre: employee.nombre || 'Empleado', rol: employee.rol || 'trabajador' }));
+      return {
+        nombre: area,
+        directivos: directors.map(director => ({ nombre: director.nombre || 'Directivo', cargo: director.cargo })),
+        empleados: employeesWithoutSubarea,
+        subareas
       };
     });
   }
@@ -709,25 +920,73 @@ class EmpresaModel {
     }
   }
 
+  static async getCompanyExportData(empresaId) {
+    const empresa = await Empresa.findById(empresaId)
+      .select('nombre mision vision valores estrategias metas indicadores departamentos directivos foda')
+      .lean();
+    if (!empresa) {
+      const error = new Error('Empresa no encontrada.');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const empleados = await Empleado.find({
+      empresaId,
+      passwordHash: { $exists: true, $nin: [null, ''] }
+    })
+      .select('nombre email rol area subarea telefono trabajadoresACargo dirigeSubareas subareas esJefeDepartamento esJefeEmpresa')
+      .sort({ nombre: 1 })
+      .lean();
+    const indicadores = empleados.length
+      ? await IndicadorPersonalEmpleado.find({
+        empresaId,
+        empleadoId: { $in: empleados.map(empleado => empleado._id) }
+      })
+        .select('empleadoId area nombre descripcion prioridad progreso status tasks createdAt updatedAt')
+        .sort({ area: 1, nombre: 1 })
+        .lean()
+      : [];
+    const indicadoresPorEmpleado = new Map();
+    indicadores.forEach(indicador => {
+      const empleadoId = String(indicador.empleadoId);
+      const employeeIndicators = indicadoresPorEmpleado.get(empleadoId) || [];
+      employeeIndicators.push(indicador);
+      indicadoresPorEmpleado.set(empleadoId, employeeIndicators);
+    });
+
+    return {
+      empresa,
+      empleados: empleados.map(empleado => ({
+        ...empleado,
+        indicadores: indicadoresPorEmpleado.get(String(empleado._id)) || []
+      }))
+    };
+  }
+
   static getSubareasPorDepartamento(directivos = []) {
-    return directivos.reduce((subareasByDepartment, directivo) => {
-      const area = String(directivo.area || '').trim();
-      if (!area) return subareasByDepartment;
-      const combined = [...(subareasByDepartment[area] || []), ...(directivo.subareas || [])]
-        .map(subarea => String(subarea).trim())
-        .filter(Boolean);
-      const uniqueSubareas = new Map();
-      combined.forEach(subarea => {
-        const key = normalizeArea(subarea);
-        if (!uniqueSubareas.has(key)) uniqueSubareas.set(key, subarea);
+    const subareasByDepartment = {};
+    directivos.forEach(directivo => {
+      const areas = [...new Set([directivo.area, ...(directivo.areasACargo || [])]
+        .map(area => String(area || '').trim())
+        .filter(Boolean))];
+      areas.forEach(area => {
+        const existing = subareasByDepartment[area] || [];
+        const combined = [...existing, ...(directivo.subareas || [])]
+          .map(subarea => String(subarea).trim())
+          .filter(Boolean);
+        const uniqueSubareas = new Map();
+        combined.forEach(subarea => {
+          const key = normalizeArea(subarea);
+          if (!uniqueSubareas.has(key)) uniqueSubareas.set(key, subarea);
+        });
+        subareasByDepartment[area] = [...uniqueSubareas.values()];
       });
-      subareasByDepartment[area] = [...uniqueSubareas.values()];
-      return subareasByDepartment;
-    }, {});
+    });
+    return subareasByDepartment;
   }
 
   static async getEmployeePortalData(empresaId) {
-    const empresa = await Empresa.findById(empresaId).select('nombre departamentos directivos');
+    const empresa = await Empresa.findById(empresaId).select('nombre representanteLegal departamentos directivos');
     if (!empresa) return null;
     const empleadosDirectivos = await Empleado.find({ empresaId, dirigeSubareas: true })
       .select('area subareas')
@@ -737,9 +996,11 @@ class EmpresaModel {
       empresa: {
         id: empresa._id,
         nombre: empresa.nombre,
+        representanteLegal: empresa.representanteLegal,
         departamentos: empresa.departamentos,
         subareasPorDepartamento: this.getSubareasPorDepartamento(directivosConSubareas)
       },
+      organigrama: await this.getCompanyOrganizationChart(empresaId),
       reuniones: []
     };
   }
@@ -763,16 +1024,46 @@ class EmpresaModel {
       subareasPorDepartamento: this.getSubareasPorDepartamento([
         ...(empresa.directivos || []),
         ...empleadosDirectivos
-      ])
+      ]),
+      organigrama: await this.getCompanyOrganizationChart(empresa._id)
     };
   }
 
-  static async registerEmpleado({ companyCode, nombre, email, passwordHash }) {
+  static async registerEmpleado({ companyCode, nombre, email, passwordHash, area, subarea }) {
     const empresa = await Empresa.findOne({ codigoInvitacion: String(companyCode || '').trim().toUpperCase() })
       .select('_id departamentos directivos');
     if (!empresa) {
       const error = new Error('El código de invitación no existe. Solicita el código vigente al organizador.');
       error.statusCode = 404;
+      throw error;
+    }
+    const selectedArea = String(area || '').trim();
+    const normalizedArea = normalizeArea(selectedArea);
+    if (!selectedArea || !(empresa.departamentos || []).some(department =>
+      normalizeArea(department) === normalizedArea
+    )) {
+      const error = new Error('Selecciona un departamento registrado en la empresa.');
+      error.statusCode = 400;
+      throw error;
+    }
+    const selectedSubarea = String(subarea || '').trim();
+    const subareaManagers = await Empleado.find({ empresaId: empresa._id, dirigeSubareas: true })
+      .select('area areasACargo subareas')
+      .lean();
+    const subareasByDepartment = this.getSubareasPorDepartamento([
+      ...(empresa.directivos || []),
+      ...subareaManagers
+    ]);
+    const registeredSubareas = Object.entries(subareasByDepartment)
+      .find(([department]) => normalizeArea(department) === normalizedArea)?.[1] || [];
+    if (registeredSubareas.length && !selectedSubarea) {
+      const error = new Error('Selecciona el área derivada en la que estás asignado.');
+      error.statusCode = 400;
+      throw error;
+    }
+    if (selectedSubarea && !registeredSubareas.some(item => normalizeArea(item) === normalizeArea(selectedSubarea))) {
+      const error = new Error('Selecciona un área derivada registrada para el departamento elegido.');
+      error.statusCode = 400;
       throw error;
     }
     const normalizedEmail = String(email).trim().toLowerCase();
@@ -801,6 +1092,10 @@ class EmpresaModel {
       existingEmployee.passwordHash = passwordHash;
       existingEmployee.tieneCuenta = true;
       existingEmployee.nombre = String(nombre || existingEmployee.nombre).trim();
+      if (existingEmployee.asignacionConfirmada === false) {
+        existingEmployee.area = selectedArea;
+        existingEmployee.subarea = selectedSubarea;
+      }
       await existingEmployee.save();
       const linkedDirector = empresa.directivos.find(
         directivo => String(directivo.email || '').trim().toLowerCase() === normalizedEmail
@@ -814,8 +1109,10 @@ class EmpresaModel {
         id: existingEmployee._id,
         empresaId: empresa._id,
         departamentos: empresa.departamentos || [],
-        subareasPorDepartamento: this.getSubareasPorDepartamento(empresa.directivos || []),
-        profileComplete: Boolean(existingEmployee.liderazgoConfirmado && existingEmployee.jefaturaConfirmada)
+        subareasPorDepartamento,
+        profileComplete: Boolean(existingEmployee.asignacionConfirmada !== false
+          && existingEmployee.liderazgoConfirmado
+          && existingEmployee.jefaturaConfirmada)
       };
     }
     const existingCompanyAccount = await Usuario.findOne({ email: String(email).trim().toLowerCase() }).select('empresaId');
@@ -830,8 +1127,11 @@ class EmpresaModel {
       email: normalizedEmail,
       passwordHash,
       tieneCuenta: true,
+      asignacionConfirmada: Boolean(manualDirector),
       rol: manualDirector ? 'directivo' : '',
-      area: manualDirector?.area || '',
+      area: manualDirector?.area || selectedArea,
+      subarea: manualDirector ? '' : selectedSubarea,
+      areasACargo: manualDirector?.areasACargo || [],
       telefono: manualDirector?.telefono || '',
       trabajadoresACargo: manualDirector?.trabajadoresACargo || 0,
       dirigeSubareas: Boolean(manualDirector?.subareas?.length),
@@ -839,7 +1139,8 @@ class EmpresaModel {
       esJefeDepartamento: Boolean(manualDirector && !manualDirector.esJefeEmpresa),
       esJefeEmpresa: Boolean(manualDirector?.esJefeEmpresa),
       liderazgoConfirmado: Boolean(manualDirector),
-      jefaturaConfirmada: Boolean(manualDirector)
+      jefaturaConfirmada: Boolean(manualDirector),
+      asignacionConfirmada: Boolean(manualDirector)
     });
     if (manualDirector) {
       manualDirector.empleadoId = empleado._id;
@@ -850,7 +1151,7 @@ class EmpresaModel {
       id: empleado._id,
       empresaId: empresa._id,
       departamentos: empresa.departamentos || [],
-      subareasPorDepartamento: this.getSubareasPorDepartamento(empresa.directivos || []),
+      subareasPorDepartamento,
       profileComplete: false
     };
   }
@@ -878,6 +1179,7 @@ class EmpresaModel {
 
   static getMissingEmployeeProfileFields(profile) {
     const missing = [];
+    if (profile.asignacionConfirmada === false) missing.push('asignación por un directivo');
     if (!String(profile.nombre || '').trim()) missing.push('nombre completo');
     if (!['trabajador', 'directivo'].includes(profile.rol)) missing.push('puesto');
     if (!profile.esJefeEmpresa && !String(profile.area || '').trim()) missing.push('departamento');
@@ -902,6 +1204,11 @@ class EmpresaModel {
     if (!empresa) {
       const error = new Error('La empresa vinculada ya no existe.');
       error.statusCode = 404;
+      throw error;
+    }
+    if (empleado.asignacionConfirmada === false) {
+      const error = new Error('Un directivo debe asignar tu área antes de que puedas completar el perfil.');
+      error.statusCode = 403;
       throw error;
     }
     const area = String(profile.area || '').trim();
@@ -934,6 +1241,16 @@ class EmpresaModel {
     if (!['trabajador', 'directivo'].includes(rol)) {
       const error = new Error('Selecciona si eres trabajador o directivo.');
       error.statusCode = 400;
+      throw error;
+    }
+    if (rol === 'directivo' && empleado.rol !== 'directivo') {
+      const error = new Error('El puesto de directivo debe asignarlo el organizador de la empresa.');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (empleado.rol === 'directivo' && rol !== 'directivo') {
+      const error = new Error('El puesto de directivo solo puede cambiarlo el organizador de la empresa.');
+      error.statusCode = 403;
       throw error;
     }
     if ((tieneJefaturaAprobada || esJefeDepartamento || esJefeEmpresa) && rol !== 'directivo') {
@@ -990,6 +1307,7 @@ class EmpresaModel {
     empleado.esJefeEmpresa = Boolean(empleado.esJefeEmpresa);
     empleado.liderazgoConfirmado = true;
     empleado.jefaturaConfirmada = true;
+    empleado.asignacionConfirmada = true;
     await this.syncEmpleadoDirectivo(empleado);
     await empleado.save();
     await IndicadorPersonalEmpleado.updateMany(
@@ -1051,12 +1369,17 @@ class EmpresaModel {
     }
 
     const area = String(empleado.area || '').trim();
-    const areaIndex = area
-      ? empresa.directivos.findIndex(directivo =>
-        normalizeArea(directivo.area) === normalizeArea(area)
-        && String(directivo.email || '').trim().toLowerCase() !== email
-      )
-      : -1;
+    const managedAreas = [...new Set([area, ...(empleado.areasACargo || [])]
+      .map(normalizeArea)
+      .filter(Boolean))];
+    const areaIndex = empresa.directivos.findIndex(directivo => {
+      if (String(directivo.email || '').trim().toLowerCase() === email) return false;
+      const otherManagedAreas = [...new Set([
+        directivo.area,
+        ...(directivo.areasACargo || [])
+      ].map(normalizeArea).filter(Boolean))];
+      return managedAreas.some(assignedArea => otherManagedAreas.includes(assignedArea));
+    });
     if (areaIndex !== -1) {
       const error = new Error('Ya hay un directivo registrado para esta área. Pide al organizador que revise el registro antes de continuar.');
       error.statusCode = 409;
@@ -1068,6 +1391,7 @@ class EmpresaModel {
       nombre: empleado.nombre || empleado.email,
       email,
       area,
+      areasACargo: empleado.areasACargo || [],
       cargo: empleado.esJefeEmpresa ? 'Dirección de empresa' : 'Dirección de departamento',
       telefono: empleado.telefono || '',
       trabajadoresACargo: empleado.trabajadoresACargo || 0,
@@ -1086,7 +1410,7 @@ class EmpresaModel {
 
   static async getEmpleadoProfile(empleadoId) {
     return Empleado.findById(empleadoId)
-      .select('empresaId nombre email tieneCuenta rol area subarea telefono trabajadoresACargo misionPersonal visionPersonal valoresPersonales estrategiasPersonales metasPersonales fodaPersonal dirigeSubareas subareas esJefeDepartamento esJefeEmpresa liderazgoConfirmado jefaturaConfirmada')
+      .select('empresaId nombre email tieneCuenta rol area areasACargo subarea telefono trabajadoresACargo misionPersonal visionPersonal valoresPersonales estrategiasPersonales metasPersonales fodaPersonal dirigeSubareas subareas esJefeDepartamento esJefeEmpresa liderazgoConfirmado jefaturaConfirmada asignacionConfirmada')
       .lean();
   }
 
@@ -1114,9 +1438,10 @@ class EmpresaModel {
           || !(objective.areasInvolucradas || []).some(area => subareas.has(normalizeArea(area))))
         .map(objective => objective.toObject());
     }
-    if (!employeeProfile.area) return [];
-    const managedAreas = [employeeProfile.area, ...(employeeProfile.dirigeSubareas ? employeeProfile.subareas || [] : [])]
-      .map(normalizeArea);
+    const managedAreas = [
+      ...this.getEmployeeManagedAreas(employeeProfile),
+      ...(employeeProfile.dirigeSubareas ? employeeProfile.subareas || [] : [])
+    ].map(normalizeArea);
     return (company.objetivos || [])
       .filter(objective => objective.tipoArea === 'general'
         || (objective.areasInvolucradas || []).some(area => managedAreas.includes(normalizeArea(area))))
@@ -1153,6 +1478,16 @@ class EmpresaModel {
       error.statusCode = 400;
       throw error;
     }
+    const areasACargo = [...new Set((Array.isArray(profile.areasACargo) ? profile.areasACargo : [])
+      .map(item => String(item).trim())
+      .filter(Boolean))];
+    if (areasACargo.some(assignedArea => !(empresa?.departamentos || []).some(department =>
+      normalizeArea(department) === normalizeArea(assignedArea)
+    ))) {
+      const error = new Error('Todas las áreas a cargo deben existir en los departamentos de la empresa.');
+      error.statusCode = 400;
+      throw error;
+    }
     const registeredSubareas = this.getSubareasPorDepartamento(empresa?.directivos || []);
     const areaSubareas = Object.entries(registeredSubareas)
       .find(([department]) => normalizeArea(department) === normalizeArea(area))?.[1] || [];
@@ -1176,6 +1511,9 @@ class EmpresaModel {
     empleado.nombre = String(profile.nombre || '').trim();
     empleado.rol = rol;
     empleado.area = area;
+    empleado.areasACargo = rol === 'directivo'
+      ? [...new Set([area, ...areasACargo].filter(Boolean))]
+      : [];
     empleado.subarea = subarea;
     empleado.telefono = String(profile.telefono || '').trim();
     empleado.trabajadoresACargo = Math.max(0, Number(profile.trabajadoresACargo) || 0);
@@ -1188,6 +1526,7 @@ class EmpresaModel {
     empleado.esJefeEmpresa = esJefeEmpresa;
     empleado.liderazgoConfirmado = true;
     empleado.jefaturaConfirmada = true;
+    empleado.asignacionConfirmada = true;
     if (profile.passwordHash) {
       empleado.passwordHash = profile.passwordHash;
       empleado.tieneCuenta = true;
@@ -1213,6 +1552,9 @@ class EmpresaModel {
     const rol = String(profile.rol || '').trim();
     const area = String(profile.area || '').trim();
     const esJefeEmpresa = Boolean(profile.esJefeEmpresa);
+    const areasACargo = [...new Set((Array.isArray(profile.areasACargo) ? profile.areasACargo : [])
+      .map(item => String(item).trim())
+      .filter(Boolean))];
     const passwordHash = String(profile.passwordHash || '');
     if (!nombre || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
       || !['trabajador', 'directivo'].includes(rol) || !passwordHash) {
@@ -1227,14 +1569,27 @@ class EmpresaModel {
         throw error;
       }
     }
+    if (areasACargo.some(assignedArea => !(empresa.departamentos || []).some(department =>
+      normalizeArea(department) === normalizeArea(assignedArea)
+    ))) {
+      const error = new Error('Todas las áreas a cargo deben existir en los departamentos de la empresa.');
+      error.statusCode = 400;
+      throw error;
+    }
     if (rol === 'trabajador' && esJefeEmpresa) {
       const error = new Error('El responsable de la empresa debe registrarse con el puesto de directivo.');
       error.statusCode = 400;
       throw error;
     }
+    const assignedAreas = [...new Set([area, ...areasACargo].map(normalizeArea).filter(Boolean))];
     if (rol === 'directivo' && !esJefeEmpresa
-      && (empresa.directivos || []).some(directivo => normalizeArea(directivo.area) === normalizeArea(area))) {
-      const error = new Error('Ya hay un directivo asignado a ese departamento.');
+      && (empresa.directivos || []).some(directivo => {
+        const otherAreas = [...new Set([directivo.area, ...(directivo.areasACargo || [])]
+          .map(normalizeArea)
+          .filter(Boolean))];
+        return assignedAreas.some(assignedArea => otherAreas.includes(assignedArea));
+      })) {
+      const error = new Error('Una o más áreas seleccionadas ya tienen directivo asignado.');
       error.statusCode = 409;
       throw error;
     }
@@ -1258,6 +1613,9 @@ class EmpresaModel {
       tieneCuenta: true,
       rol,
       area,
+      areasACargo: rol === 'directivo'
+        ? [...new Set([area, ...areasACargo].filter(Boolean))]
+        : [],
       telefono: String(profile.telefono || '').trim(),
       trabajadoresACargo: Math.max(0, Number(profile.trabajadoresACargo) || 0),
       dirigeSubareas: rol === 'directivo' && Boolean(profile.dirigeSubareas),
@@ -1265,7 +1623,8 @@ class EmpresaModel {
       esJefeDepartamento: rol === 'directivo' && !esJefeEmpresa,
       esJefeEmpresa,
       liderazgoConfirmado: true,
-      jefaturaConfirmada: true
+      jefaturaConfirmada: true,
+      asignacionConfirmada: true
     });
     if (rol === 'directivo') {
       empresa.directivos.push({
@@ -1274,6 +1633,7 @@ class EmpresaModel {
         nombre,
         email,
         area,
+        areasACargo: empleado.areasACargo,
         cargo: esJefeEmpresa ? 'Dirección de empresa' : 'Dirección de departamento',
         telefono: empleado.telefono,
         trabajadoresACargo: empleado.trabajadoresACargo,
@@ -1312,7 +1672,7 @@ class EmpresaModel {
 
   static async getEmpleadoDirectory(empresaId) {
     const empleados = await Empleado.find({ empresaId })
-      .select('nombre email passwordHash tieneCuenta rol area subarea telefono trabajadoresACargo dirigeSubareas subareas esJefeDepartamento esJefeEmpresa liderazgoConfirmado jefaturaConfirmada createdAt')
+      .select('nombre email passwordHash tieneCuenta rol area areasACargo subarea telefono trabajadoresACargo dirigeSubareas subareas esJefeDepartamento esJefeEmpresa liderazgoConfirmado jefaturaConfirmada asignacionConfirmada createdAt')
       .sort({ nombre: 1 })
       .lean();
     return empleados.map(({ passwordHash, ...empleado }) => ({
@@ -1344,6 +1704,7 @@ class EmpresaModel {
         empleado.nombre = String(directivo.nombre || empleado.nombre).trim();
         empleado.rol = 'directivo';
         empleado.area = String(directivo.area || '').trim();
+        empleado.areasACargo = directivo.areasACargo || [];
         empleado.telefono = String(directivo.telefono || '').trim();
         empleado.trabajadoresACargo = Math.max(0, Number(directivo.trabajadoresACargo) || 0);
         empleado.dirigeSubareas = Boolean(directivo.subareas?.length);
@@ -1352,6 +1713,7 @@ class EmpresaModel {
         empleado.esJefeEmpresa = Boolean(directivo.esJefeEmpresa);
         empleado.liderazgoConfirmado = true;
         empleado.jefaturaConfirmada = true;
+        empleado.asignacionConfirmada = true;
         empleado.tieneCuenta = true;
         await empleado.save();
         directivo.empleadoId = empleado._id;
@@ -1365,6 +1727,7 @@ class EmpresaModel {
       empleado.nombre = String(directivo.nombre || '').trim();
       empleado.rol = 'directivo';
       empleado.area = String(directivo.area || '').trim();
+      empleado.areasACargo = directivo.areasACargo || [];
       empleado.telefono = String(directivo.telefono || '').trim();
       empleado.trabajadoresACargo = Math.max(0, Number(directivo.trabajadoresACargo) || 0);
       empleado.dirigeSubareas = Boolean(directivo.subareas?.length);
@@ -1373,6 +1736,7 @@ class EmpresaModel {
       empleado.esJefeEmpresa = Boolean(directivo.esJefeEmpresa);
       empleado.liderazgoConfirmado = true;
       empleado.jefaturaConfirmada = true;
+      empleado.asignacionConfirmada = true;
       empleado.tieneCuenta = false;
       await empleado.save();
       directivo.empleadoId = empleado._id;
@@ -1643,12 +2007,24 @@ class EmpresaModel {
             error.statusCode = 400;
             throw error;
           }
-          if (normalizedArea && areas.has(normalizedArea)) {
-            const error = new Error(`El departamento "${area}" ya tiene un directivo. Solo se permite un directivo por departamento.`);
-            error.statusCode = 409;
+          const assignedAreas = [...new Set([
+            area,
+            ...(Array.isArray(directivo?.areasACargo) ? directivo.areasACargo : [])
+          ].map(item => String(item || '').trim()).filter(Boolean))];
+          if (assignedAreas.some(assignedArea => !departamentos.has(normalizeArea(assignedArea)))) {
+            const error = new Error('Todas las áreas asignadas a un directivo deben existir en los departamentos de la empresa.');
+            error.statusCode = 400;
             throw error;
           }
-          if (normalizedArea) areas.add(normalizedArea);
+          for (const assignedArea of assignedAreas) {
+            const assignedAreaKey = normalizeArea(assignedArea);
+            if (areas.has(assignedAreaKey)) {
+              const error = new Error(`El área "${assignedArea}" ya tiene un directivo asignado.`);
+              error.statusCode = 409;
+              throw error;
+            }
+            areas.add(assignedAreaKey);
+          }
         });
         data.directivos = directivos;
       }

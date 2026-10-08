@@ -15,6 +15,15 @@ const getDepartmentSubareas = (directivos = [], department = '', currentSubarea 
   return choices;
 };
 
+const getDirectorAssignedAreas = (directivos = [], excludedEmail = '') => {
+  const excluded = String(excludedEmail || '').trim().toLowerCase();
+  return new Set(directivos
+    .filter(directivo => String(directivo.email || '').trim().toLowerCase() !== excluded)
+    .flatMap(directivo => [directivo.area, ...(directivo.areasACargo || [])])
+    .map(area => String(area || '').trim().toLowerCase())
+    .filter(Boolean));
+};
+
 const Settings = ({
   companyData,
   setCompanyData,
@@ -46,6 +55,7 @@ const Settings = ({
   const [deletingManagedObjectiveId, setDeletingManagedObjectiveId] = useState('');
   const [newEmployee, setNewEmployee] = useState({
     nombre: '', email: '', rol: 'trabajador', area: '', subarea: '',
+    areasACargo: [],
     password: '', telefono: '', trabajadoresACargo: 0, esJefeEmpresa: false,
     dirigeSubareas: false, subareas: []
   });
@@ -86,6 +96,7 @@ const Settings = ({
 
   const companyId = companyData?._id || companyData?.id;
   const isCompanySection = section === 'empresa';
+  const areasAssignedToOtherDirectors = getDirectorAssignedAreas(companyData?.directivos || []);
 
   useEffect(() => {
     if (!companyId || companyData?.codigoInvitacion || inviteCodeAttemptedFor.current === String(companyId)) return;
@@ -239,6 +250,7 @@ const Settings = ({
             nombre: response.data.nombre,
             email: response.data.email,
             area: response.data.area,
+            areasACargo: response.data.areasACargo || [],
             telefono: response.data.telefono || '',
             trabajadoresACargo: response.data.trabajadoresACargo || 0,
             subareas: response.data.dirigeSubareas ? response.data.subareas || [] : [],
@@ -280,6 +292,7 @@ const Settings = ({
             nombre: employee.nombre,
             email: employee.email,
             area: employee.area,
+            areasACargo: employee.areasACargo || [],
             cargo: employee.esJefeEmpresa ? 'Dirección de empresa' : 'Dirección de departamento',
             telefono: employee.telefono || '',
             trabajadoresACargo: employee.trabajadoresACargo || 0,
@@ -290,6 +303,7 @@ const Settings = ({
       }));
       setNewEmployee({
         nombre: '', email: '', rol: 'trabajador', area: '', subarea: '',
+        areasACargo: [],
         password: '', telefono: '', trabajadoresACargo: 0, esJefeEmpresa: false,
         dirigeSubareas: false, subareas: []
       });
@@ -677,7 +691,11 @@ const Settings = ({
                   disabled={newEmployee.esJefeEmpresa}
                 >
                   <option value="">Selecciona un departamento</option>
-                  {(companyData?.departamentos || []).map(area => <option key={area} value={area}>{area}</option>)}
+                  {(companyData?.departamentos || [])
+                    .filter(area => newEmployee.rol !== 'directivo'
+                      || !areasAssignedToOtherDirectors.has(String(area).trim().toLowerCase())
+                      || String(area).trim().toLowerCase() === String(newEmployee.area).trim().toLowerCase())
+                    .map(area => <option key={area} value={area}>{area}</option>)}
                 </Form.Select>
               </Form.Group>
             </Col>
@@ -696,6 +714,27 @@ const Settings = ({
                 </Form.Select>
               </Form.Group>
             </Col>
+            {newEmployee.rol === 'directivo' && !newEmployee.esJefeEmpresa && (
+              <Col md={12}>
+                <Form.Group className="mb-3">
+                  <Form.Label>Otras áreas principales a su cargo (opcional)</Form.Label>
+                  <Form.Select
+                    multiple
+                    value={(newEmployee.areasACargo || []).filter(area => area !== newEmployee.area)}
+                    onChange={event => setNewEmployee(current => ({
+                      ...current,
+                      areasACargo: Array.from(event.target.selectedOptions, option => option.value)
+                    }))}
+                  >
+                    {(companyData?.departamentos || [])
+                      .filter(area => area !== newEmployee.area)
+                      .filter(area => !areasAssignedToOtherDirectors.has(String(area).trim().toLowerCase()))
+                      .map(area => <option key={area} value={area}>{area}</option>)}
+                  </Form.Select>
+                  <Form.Text>Selecciona una o más áreas principales sin directivo asignado. Mantén Ctrl para elegir varias.</Form.Text>
+                </Form.Group>
+              </Col>
+            )}
             {newEmployee.rol === 'directivo' && (
               <>
                 <Col md={4}>
@@ -770,6 +809,7 @@ const Settings = ({
                 {companyData.empleados.map(empleado => {
                   const employeeId = String(empleado._id || empleado.id);
                   const isEditing = editingEmployeeId === employeeId;
+                  const otherDirectorAreas = getDirectorAssignedAreas(companyData.directivos, empleado.email);
                   return (
                     <tr key={employeeId}>
                       <td>{isEditing
@@ -785,7 +825,11 @@ const Settings = ({
                       <td>{isEditing ? (
                         <Form.Select aria-label="Área del empleado" value={employeeDraft.area} onChange={event => setEmployeeDraft(current => ({ ...current, area: event.target.value, subarea: '' }))}>
                           <option value="">Seleccionar</option>
-                          {(companyData.departamentos || []).map(area => <option key={area} value={area}>{area}</option>)}
+                          {(companyData.departamentos || [])
+                            .filter(area => employeeDraft.rol !== 'directivo'
+                              || !otherDirectorAreas.has(String(area).trim().toLowerCase())
+                              || String(area).trim().toLowerCase() === String(employeeDraft.area).trim().toLowerCase())
+                            .map(area => <option key={area} value={area}>{area}</option>)}
                         </Form.Select>
                       ) : empleado.area || 'Pendiente'}</td>
                       <td>{isEditing
@@ -814,6 +858,26 @@ const Settings = ({
                               checked={employeeDraft.dirigeSubareas}
                               onChange={event => setEmployeeDraft(current => ({ ...current, dirigeSubareas: event.target.checked, rol: event.target.checked ? 'directivo' : current.rol }))}
                             />
+                            {employeeDraft.rol === 'directivo' && !employeeDraft.esJefeEmpresa && (
+                              <Form.Group className="mt-2">
+                                <Form.Label className="small mb-1">Otras áreas principales a su cargo</Form.Label>
+                                <Form.Select
+                                  multiple
+                                  aria-label="Otras áreas principales a cargo"
+                                  value={(employeeDraft.areasACargo || []).filter(area => area !== employeeDraft.area)}
+                                  onChange={event => setEmployeeDraft(current => ({
+                                    ...current,
+                                    areasACargo: Array.from(event.target.selectedOptions, option => option.value)
+                                  }))}
+                                >
+                                  {(companyData.departamentos || [])
+                                    .filter(area => area !== employeeDraft.area)
+                                    .filter(area => !otherDirectorAreas.has(String(area).trim().toLowerCase()))
+                                    .map(area => <option key={area} value={area}>{area}</option>)}
+                                </Form.Select>
+                                <Form.Text>Áreas sin directivo asignado. Mantén Ctrl para elegir varias.</Form.Text>
+                              </Form.Group>
+                            )}
                             {employeeDraft.dirigeSubareas && (
                               <>
                                 <Form.Control
@@ -894,6 +958,7 @@ const Settings = ({
                                   nombre: empleado.nombre || '',
                                   rol: empleado.rol || '',
                                   area: empleado.area || '',
+                                  areasACargo: (empleado.areasACargo || []).filter(area => area !== empleado.area),
                                   subarea: empleado.subarea || '',
                                   telefono: empleado.telefono || '',
                                   password: '',

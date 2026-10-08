@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Row, Col, Card, Button, Form, Alert } from 'react-bootstrap';
+import { Download } from 'lucide-react';
 import ApiService from '../services/apiService';
 import RisingLines from './RisingLines';
+import CompanyOrganizationChart from './CompanyOrganizationChart';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const SERVER_URL = API_URL.replace(/\/api\/?$/, '').replace(/\/+$/, '');
@@ -14,6 +16,8 @@ const Dashboard = ({ companyData, setCompanyData, fodaData, setFodaData, reunion
   const [planFile, setPlanFile] = useState(null);
   const [planMessage, setPlanMessage] = useState('');
   const [uploadingPlan, setUploadingPlan] = useState(false);
+  const [exportingCompanyData, setExportingCompanyData] = useState(false);
+  const [companyExportMessage, setCompanyExportMessage] = useState('');
   const planInput = useRef(null);
 
   useEffect(() => {
@@ -77,6 +81,28 @@ const Dashboard = ({ companyData, setCompanyData, fodaData, setFodaData, reunion
       setPlanMessage(error.message || 'No se pudo guardar el plan estratégico.');
     } finally {
       setUploadingPlan(false);
+    }
+  };
+
+  const exportCompanyData = async () => {
+    setExportingCompanyData(true);
+    setCompanyExportMessage('');
+    try {
+      const file = await ApiService.exportCompanyText();
+      const downloadUrl = URL.createObjectURL(file);
+      const downloadLink = document.createElement('a');
+      downloadLink.href = downloadUrl;
+      downloadLink.download = 'quorum-exportacion-empresa.txt';
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+      window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
+      setCompanyExportMessage('Se descargó el archivo con la información institucional, el FODA y los perfiles e indicadores de cuentas de empleados vinculadas.');
+    } catch (error) {
+      console.error('Error al exportar los datos de la empresa:', error);
+      setCompanyExportMessage(`No se pudo exportar la información. ${error.message || 'Inténtalo de nuevo.'}`);
+    } finally {
+      setExportingCompanyData(false);
     }
   };
 
@@ -171,8 +197,29 @@ const Dashboard = ({ companyData, setCompanyData, fodaData, setFodaData, reunion
               <div className="text-uppercase small text-muted fw-semibold">Información institucional</div>
               <h5 className="mb-0">{companyData?.nombre || 'Empresa sin registrar'}</h5>
             </div>
-            <span className="dashboard-edit-note">La información se puede editar desde Configuración.</span>
+            <div className="d-flex flex-wrap align-items-center gap-2">
+              <span className="dashboard-edit-note">La información se puede editar desde Configuración.</span>
+              <Button
+                type="button"
+                variant="outline-primary"
+                size="sm"
+                onClick={exportCompanyData}
+                disabled={exportingCompanyData}
+              >
+                <Download size={16} className="me-1" />
+                {exportingCompanyData ? 'Preparando archivo...' : 'Exportar datos (.txt)'}
+              </Button>
+            </div>
           </div>
+          {companyExportMessage && (
+            <Alert
+              variant={companyExportMessage.startsWith('No se pudo') ? 'danger' : 'success'}
+              className="py-2"
+              role="status"
+            >
+              {companyExportMessage}
+            </Alert>
+          )}
           <Row>
             <Col md={3} sm={6} className="mb-2">
               <div className="d-flex align-items-center gap-2">
@@ -308,6 +355,15 @@ const Dashboard = ({ companyData, setCompanyData, fodaData, setFodaData, reunion
           )}
         </Card.Body>
       </Card>
+      <CompanyOrganizationChart
+        areas={companyData?.organigrama || []}
+        companyName={companyData?.nombre || companyData?.razonSocial || ''}
+        legalRepresentative={companyData?.representanteLegal || ''}
+        departments={companyData?.departamentos || []}
+        directors={companyData?.directivos || []}
+        employees={companyData?.empleados || []}
+        subareasByDepartment={companyData?.subareasPorDepartamento || {}}
+      />
     </div>
   );
 };

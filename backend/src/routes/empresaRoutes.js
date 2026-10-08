@@ -5,6 +5,7 @@ const authMiddleware = require('../middleware/auth');
 const reviewerAuth = require('../middleware/reviewerAuth');
 const meetingUpload = require('../middleware/meetingUpload');
 const employeeAuth = require('../middleware/employeeAuth');
+const employeeAssignmentAuth = require('../middleware/employeeAssignmentAuth');
 const employeeSpreadsheetUpload = require('../middleware/employeeSpreadsheetUpload');
 const presentationUpload = require('../middleware/presentationUpload');
 const strategicPlanUpload = require('../middleware/strategicPlanUpload');
@@ -33,6 +34,7 @@ router.post('/employee/account/login', EmpresaController.employeeAccountLogin);
 
 // Empresa
 router.get('/empresa', authMiddleware, EmpresaController.getEmpresa);
+router.get('/empresa/exportar-texto', authMiddleware, EmpresaController.exportCompanyText);
 router.post('/empresa/codigo-invitacion', authMiddleware, EmpresaController.generateCompanyInviteCode);
 router.put('/empresa/convocatorias/smtp', authMiddleware, EmpresaController.saveCompanySmtp);
 router.delete('/empresa/convocatorias/smtp', authMiddleware, EmpresaController.deleteCompanySmtp);
@@ -49,17 +51,19 @@ router.delete('/empresa/empleados/:employeeId/indicadores-personales/:objectiveI
 
 // Portal independiente de empleados
 router.get('/employee/portal', employeeAuth, EmpresaController.getEmployeePortal);
-router.post('/employee/meetings/:id/spreadsheets', employeeAuth, employeeSpreadsheetUpload.single('archivo'), EmpresaController.uploadEmployeeMeetingSpreadsheet);
-router.get('/employee/meetings/:id/spreadsheets/:documentId/indicators', employeeAuth, EmpresaController.getEmployeeMeetingSpreadsheetInsights);
-router.put('/employee/profile', employeeAuth, EmpresaController.completeEmployeeProfile);
-router.put('/employee/personal-strategy', employeeAuth, EmpresaController.updateEmployeePersonalStrategy);
-router.post('/employee/personal-meetings', employeeAuth, EmpresaController.createEmployeePersonalMeeting);
-router.put('/employee/personal-meetings/:meetingId', employeeAuth, EmpresaController.updateEmployeePersonalMeeting);
-router.delete('/employee/personal-meetings/:meetingId', employeeAuth, EmpresaController.deleteEmployeePersonalMeeting);
-router.get('/employee/personal-objectives', employeeAuth, EmpresaController.getEmployeePersonalObjectives);
-router.post('/employee/personal-objectives', employeeAuth, EmpresaController.createEmployeePersonalObjective);
-router.put('/employee/personal-objectives/:objectiveId', employeeAuth, EmpresaController.updateEmployeePersonalObjective);
-router.delete('/employee/personal-objectives/:objectiveId', employeeAuth, EmpresaController.deleteEmployeePersonalObjective);
+router.post('/employee/team/employees', employeeAuth, employeeAssignmentAuth, EmpresaController.addEmployeeFromEmployeePortal);
+router.post('/employee/meetings/:id/spreadsheets', employeeAuth, employeeAssignmentAuth, employeeSpreadsheetUpload.single('archivo'), EmpresaController.uploadEmployeeMeetingSpreadsheet);
+router.delete('/employee/meetings/:id/spreadsheets/:documentId', employeeAuth, employeeAssignmentAuth, EmpresaController.deleteEmployeeMeetingSpreadsheet);
+router.get('/employee/meetings/:id/spreadsheets/:documentId/indicators', employeeAuth, employeeAssignmentAuth, EmpresaController.getEmployeeMeetingSpreadsheetInsights);
+router.put('/employee/profile', employeeAuth, employeeAssignmentAuth, EmpresaController.completeEmployeeProfile);
+router.put('/employee/personal-strategy', employeeAuth, employeeAssignmentAuth, EmpresaController.updateEmployeePersonalStrategy);
+router.post('/employee/personal-meetings', employeeAuth, employeeAssignmentAuth, EmpresaController.createEmployeePersonalMeeting);
+router.put('/employee/personal-meetings/:meetingId', employeeAuth, employeeAssignmentAuth, EmpresaController.updateEmployeePersonalMeeting);
+router.delete('/employee/personal-meetings/:meetingId', employeeAuth, employeeAssignmentAuth, EmpresaController.deleteEmployeePersonalMeeting);
+router.get('/employee/personal-objectives', employeeAuth, employeeAssignmentAuth, EmpresaController.getEmployeePersonalObjectives);
+router.post('/employee/personal-objectives', employeeAuth, employeeAssignmentAuth, EmpresaController.createEmployeePersonalObjective);
+router.put('/employee/personal-objectives/:objectiveId', employeeAuth, employeeAssignmentAuth, EmpresaController.updateEmployeePersonalObjective);
+router.delete('/employee/personal-objectives/:objectiveId', employeeAuth, employeeAssignmentAuth, EmpresaController.deleteEmployeePersonalObjective);
 
 // Reuniones
 router.post('/reuniones', authMiddleware, reunionValidation, EmpresaController.createReunion);
