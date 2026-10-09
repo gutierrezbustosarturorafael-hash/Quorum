@@ -197,6 +197,11 @@ const usuarioSchema = new mongoose.Schema({
   termsVersion: { type: String, default: '' }
 }, { timestamps: true });
 
+const administradorConfigSchema = new mongoose.Schema({
+  _id: { type: String, default: 'principal' },
+  usuarioId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true }
+}, { timestamps: true });
+
 const empleadoSchema = new mongoose.Schema({
   empresaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Empresa', required: true, index: true },
   nombre: { type: String, default: '', trim: true },
@@ -277,6 +282,7 @@ reunionSchema.index({ recurrenceOccurrenceKey: 1 }, { unique: true, sparse: true
 const Empresa = mongoose.model('Empresa', empresaSchema);
 const Reunion = mongoose.model('Reunion', reunionSchema);
 const Usuario = mongoose.model('Usuario', usuarioSchema);
+const AdministradorConfig = mongoose.model('AdministradorConfig', administradorConfigSchema);
 const Empleado = mongoose.model('Empleado', empleadoSchema);
 const ReunionPersonalEmpleado = mongoose.model('ReunionPersonalEmpleado', reunionPersonalEmpleadoSchema);
 const IndicadorPersonalEmpleado = mongoose.model('IndicadorPersonalEmpleado', indicadorPersonalEmpleadoSchema);
@@ -871,17 +877,26 @@ class EmpresaModel {
 
       await empresa.save();
 
+      let isAdministrator = false;
       if (data.email && data.passwordHash) {
-        await Usuario.create({
+        const usuario = await Usuario.create({
           empresaId: empresa._id,
           email: String(data.email).trim().toLowerCase(),
           passwordHash: data.passwordHash,
           termsAcceptedAt: data.termsAcceptedAt,
           termsVersion: data.termsVersion
         });
+        if (data.claimAdministrator) {
+          isAdministrator = await EmpresaModel.claimFirstAdministrator(usuario._id);
+        }
       }
 
-      return { id: empresa._id, success: true };
+      return {
+        id: empresa._id,
+        success: true,
+        isAdministrator,
+        administratorSetupRequired: !(await AdministradorConfig.exists({ _id: 'principal' }))
+      };
     } catch (error) {
       console.error('Error en createEmpresaCompleta:', error.message);
       throw error;
@@ -2365,6 +2380,32 @@ class EmpresaModel {
       console.error('Error en verifyUser:', error.message);
       throw error;
     }
+  }
+
+  static async hasAdministratorAccount() {
+    return Boolean(await AdministradorConfig.exists({ _id: 'principal' }));
+  }
+
+  static async claimFirstAdministrator(usuarioId) {
+    try {
+      const config = await AdministradorConfig.findOneAndUpdate(
+        { _id: 'principal' },
+        { $setOnInsert: { usuarioId } },
+        { upsert: true, new: true }
+      );
+      return String(config.usuarioId) === String(usuarioId);
+    } catch (error) {
+      if (error.code !== 11000) throw error;
+      const config = await AdministradorConfig.findById('principal');
+      if (!config) throw error;
+      return String(config.usuarioId) === String(usuarioId);
+    }
+  }
+
+  static async isAdministratorAccount(usuarioId) {
+    if (!mongoose.isValidObjectId(usuarioId)) return false;
+    const config = await AdministradorConfig.findOne({ _id: 'principal', usuarioId }).select('_id').lean();
+    return Boolean(config);
   }
 
   static async getEmpresasParaRevision() {

@@ -51,11 +51,6 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   throw new Error('JWT_SECRET debe estar configurado y tener al menos 32 caracteres');
 }
 
-const adminJwtSecret = process.env.ADMIN_JWT_SECRET || process.env.REVIEWER_JWT_SECRET;
-if (adminJwtSecret && adminJwtSecret.length < 32) {
-  throw new Error('ADMIN_JWT_SECRET debe tener al menos 32 caracteres');
-}
-
 // Orígenes explícitamente permitidos
 const allowedOrigins = [
   'http://localhost:3000',

@@ -316,13 +316,30 @@ class EmpresaController {
   // ============================================================
   static async register(req, res) {
     try {
-      const { nombre, tipoPersona, razonSocial, rfc, domicilioFiscal, regimenFiscal, representanteLegal, telefonoContacto, mision, vision, email, password, termsAccepted, termsVersion, ...resto } = req.body;
+      const { nombre, tipoPersona, razonSocial, rfc, domicilioFiscal, regimenFiscal, representanteLegal, telefonoContacto, mision, vision, email, password, termsAccepted, termsVersion, adminBootstrapKey, ...resto } = req.body;
 
       if (!nombre || !razonSocial || !rfc || !domicilioFiscal || !regimenFiscal || !mision || !vision || !email || !password || termsAccepted !== true) {
         return res.status(400).json({
           success: false,
           message: 'Faltan datos empresariales, fiscales o de acceso obligatorios'
         });
+      }
+
+      const administratorConfigured = await EmpresaModel.hasAdministratorAccount();
+      let claimAdministrator = false;
+      if (!administratorConfigured) {
+        const suppliedKey = Buffer.from(String(adminBootstrapKey || ''), 'utf8');
+        const configuredKey = Buffer.from(String(process.env.ADMIN_BOOTSTRAP_KEY || ''), 'utf8');
+        const validBootstrapKey = suppliedKey.length > 0
+          && suppliedKey.length === configuredKey.length
+          && crypto.timingSafeEqual(suppliedKey, configuredKey);
+        if (!validBootstrapKey) {
+          return res.status(403).json({
+            success: false,
+            message: 'El primer registro requiere la clave de configuración inicial proporcionada por quien administra el despliegue.'
+          });
+        }
+        claimAdministrator = true;
       }
 
       const salt = await bcrypt.genSalt(10);
@@ -342,6 +359,7 @@ class EmpresaController {
         vision,
         email,
         passwordHash,
+        claimAdministrator,
         termsAcceptedAt: new Date(),
         termsVersion,
         valores: resto.valores || [],
@@ -365,7 +383,14 @@ class EmpresaController {
         { expiresIn: '7d' }
       );
 
-      res.status(201).json({ success: true, token, empresaId: result.id, verificationStatus: 'pendiente' });
+      res.status(201).json({
+        success: true,
+        token,
+        empresaId: result.id,
+        verificationStatus: 'pendiente',
+        isAdministrator: result.isAdministrator,
+        administratorSetupRequired: result.administratorSetupRequired
+      });
     } catch (error) {
       console.error('Register error:', error.message);
       if (error.code === 11000) {
@@ -1822,20 +1847,25 @@ class EmpresaController {
   static async reviewerLogin(req, res) {
     try {
       const { email, password } = req.body;
-      const adminEmail = process.env.ADMIN_EMAIL || process.env.REVIEWER_EMAIL;
-      const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH || process.env.REVIEWER_PASSWORD_HASH;
-      const adminJwtSecret = process.env.ADMIN_JWT_SECRET || process.env.REVIEWER_JWT_SECRET;
-      if (!adminEmail || !adminPasswordHash || !adminJwtSecret) {
-        console.error('Reviewer login: faltan variables de configuración administrativa');
-        return res.status(503).json({ success: false, message: 'El acceso de revisores no está configurado' });
-      }
-      const validPassword = await bcrypt.compare(password, adminPasswordHash);
-      if (email !== adminEmail || !validPassword) {
+      const user = await EmpresaModel.verifyUser(email);
+      if (!user) {
         console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
         return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
       }
-      const token = jwt.sign({ email, role: 'administrator' }, adminJwtSecret, { expiresIn: '8h' });
-      console.log(`Reviewer login correcto para ${email}`);
+      const [validPassword, isAdministrator] = await Promise.all([
+        bcrypt.compare(password, user.password_hash),
+        EmpresaModel.isAdministratorAccount(user.id)
+      ]);
+      if (!validPassword || !isAdministrator) {
+        console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
+        return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
+      }
+      const token = jwt.sign(
+        { usuarioId: user.id, email: user.email, role: 'administrator' },
+        process.env.JWT_SECRET,
+        { expiresIn: '8h' }
+      );
+      console.log(`Reviewer login correcto para ${user.email}`);
       return res.json({ success: true, token });
     } catch (error) {
       console.error('Reviewer login error:', error.message);
