@@ -179,12 +179,6 @@ function OrganizerApp() {
       
       if (response.success) {
         localStorage.setItem('token', response.token);
-        if (authMode === 'registro' && response.isAdministrator) {
-          setNotification({
-            message: 'Tu cuenta quedó como administradora. Usa el mismo correo y contraseña para entrar al panel en /administracion.',
-            type: 'info'
-          });
-        }
         await loadData();
         setShowAuthModal(false);
       }

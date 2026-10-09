@@ -316,30 +316,13 @@ class EmpresaController {
   // ============================================================
   static async register(req, res) {
     try {
-      const { nombre, tipoPersona, razonSocial, rfc, domicilioFiscal, regimenFiscal, representanteLegal, telefonoContacto, mision, vision, email, password, termsAccepted, termsVersion, adminBootstrapKey, ...resto } = req.body;
+      const { nombre, tipoPersona, razonSocial, rfc, domicilioFiscal, regimenFiscal, representanteLegal, telefonoContacto, mision, vision, email, password, termsAccepted, termsVersion, ...resto } = req.body;
 
       if (!nombre || !razonSocial || !rfc || !domicilioFiscal || !regimenFiscal || !mision || !vision || !email || !password || termsAccepted !== true) {
         return res.status(400).json({
           success: false,
           message: 'Faltan datos empresariales, fiscales o de acceso obligatorios'
         });
-      }
-
-      const administratorConfigured = await EmpresaModel.hasAdministratorAccount();
-      let claimAdministrator = false;
-      if (!administratorConfigured) {
-        const suppliedKey = Buffer.from(String(adminBootstrapKey || ''), 'utf8');
-        const configuredKey = Buffer.from(String(process.env.ADMIN_BOOTSTRAP_KEY || ''), 'utf8');
-        const validBootstrapKey = suppliedKey.length > 0
-          && suppliedKey.length === configuredKey.length
-          && crypto.timingSafeEqual(suppliedKey, configuredKey);
-        if (!validBootstrapKey) {
-          return res.status(403).json({
-            success: false,
-            message: 'El primer registro requiere la clave de configuración inicial proporcionada por quien administra el despliegue.'
-          });
-        }
-        claimAdministrator = true;
       }
 
       const salt = await bcrypt.genSalt(10);
@@ -359,7 +342,6 @@ class EmpresaController {
         vision,
         email,
         passwordHash,
-        claimAdministrator,
         termsAcceptedAt: new Date(),
         termsVersion,
         valores: resto.valores || [],
@@ -387,9 +369,7 @@ class EmpresaController {
         success: true,
         token,
         empresaId: result.id,
-        verificationStatus: 'pendiente',
-        isAdministrator: result.isAdministrator,
-        administratorSetupRequired: result.administratorSetupRequired
+        verificationStatus: 'pendiente'
       });
     } catch (error) {
       console.error('Register error:', error.message);
@@ -1846,17 +1826,39 @@ class EmpresaController {
 
   static async reviewerLogin(req, res) {
     try {
-      const { email, password } = req.body;
+      const { email, password, adminBootstrapKey } = req.body;
       const user = await EmpresaModel.verifyUser(email);
       if (!user) {
         console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
         return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
       }
-      const [validPassword, isAdministrator] = await Promise.all([
-        bcrypt.compare(password, user.password_hash),
-        EmpresaModel.isAdministratorAccount(user.id)
-      ]);
-      if (!validPassword || !isAdministrator) {
+      const validPassword = await bcrypt.compare(password, user.password_hash);
+      if (!validPassword) {
+        console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
+        return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
+      }
+      let isAdministrator = await EmpresaModel.isAdministratorAccount(user.id);
+      if (!isAdministrator && !await EmpresaModel.hasAdministratorAccount()) {
+        const suppliedKey = Buffer.from(String(adminBootstrapKey || ''), 'utf8');
+        const configuredKey = Buffer.from(String(process.env.ADMIN_BOOTSTRAP_KEY || ''), 'utf8');
+        if (!configuredKey.length) {
+          return res.status(503).json({
+            success: false,
+            message: 'La configuración inicial del administrador no está habilitada en el servidor.'
+          });
+        }
+        const validBootstrapKey = suppliedKey.length > 0
+          && suppliedKey.length === configuredKey.length
+          && crypto.timingSafeEqual(suppliedKey, configuredKey);
+        if (!validBootstrapKey) {
+          return res.status(403).json({
+            success: false,
+            message: 'Ingresa la clave de configuración inicial para habilitar esta cuenta como administradora.'
+          });
+        }
+        isAdministrator = await EmpresaModel.claimFirstAdministrator(user.id);
+      }
+      if (!isAdministrator) {
         console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
         return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
       }

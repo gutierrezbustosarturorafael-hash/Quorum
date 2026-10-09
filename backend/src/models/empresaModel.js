@@ -877,26 +877,17 @@ class EmpresaModel {
 
       await empresa.save();
 
-      let isAdministrator = false;
       if (data.email && data.passwordHash) {
-        const usuario = await Usuario.create({
+        await Usuario.create({
           empresaId: empresa._id,
           email: String(data.email).trim().toLowerCase(),
           passwordHash: data.passwordHash,
           termsAcceptedAt: data.termsAcceptedAt,
           termsVersion: data.termsVersion
         });
-        if (data.claimAdministrator) {
-          isAdministrator = await EmpresaModel.claimFirstAdministrator(usuario._id);
-        }
       }
 
-      return {
-        id: empresa._id,
-        success: true,
-        isAdministrator,
-        administratorSetupRequired: !(await AdministradorConfig.exists({ _id: 'principal' }))
-      };
+      return { id: empresa._id, success: true };
     } catch (error) {
       console.error('Error en createEmpresaCompleta:', error.message);
       throw error;

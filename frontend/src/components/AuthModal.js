@@ -5,7 +5,6 @@ import PrivacyNotice from './PrivacyNotice';
 const INITIAL_FORM = {
   email: '',
   password: '',
-  adminBootstrapKey: '',
   nombre: '',
   tipoPersona: '',
   representanteLegal: '',
@@ -47,8 +46,6 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
     if (show) {
       setStep(1);
       setShowPassword(false);
-    } else {
-      setFormData(current => ({ ...current, adminBootstrapKey: '' }));
     }
   }, [show]);
 
@@ -101,7 +98,6 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
       amenazas: lines(formData.amenazas),
       email: formData.email,
       password: formData.password,
-      adminBootstrapKey: formData.adminBootstrapKey,
       termsAccepted: formData.termsAccepted,
       termsVersion: TERMS_VERSION
     };
@@ -290,19 +286,6 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
                     </Form.Group>
                   </Col>
                 </Row>
-                <Form.Group className="mb-3">
-                  <Form.Label>Clave de configuración inicial</Form.Label>
-                  <Form.Control
-                    type="password"
-                    name="adminBootstrapKey"
-                    value={formData.adminBootstrapKey}
-                    onChange={handleChange}
-                    autoComplete="off"
-                  />
-                  <Form.Text>
-                    Solo se usa para que la primera cuenta registrada sea administradora. Pídela a quien configuró el despliegue.
-                  </Form.Text>
-                </Form.Group>
                 <Row>
                   <Col md={6}>{renderTextArea('metas', 'Metas (una por línea)')}</Col>
                   <Col md={6}>{renderTextArea('indicadores', 'Indicadores (uno por línea)')}</Col>

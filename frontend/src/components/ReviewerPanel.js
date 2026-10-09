@@ -3,7 +3,7 @@ import { Alert, Badge, Button, Card, Form, InputGroup, Modal, Table } from 'reac
 import ApiService from '../services/apiService';
 
 const ReviewerPanel = () => {
-  const [credentials, setCredentials] = useState({ email: '', password: '' });
+  const [credentials, setCredentials] = useState({ email: '', password: '', adminBootstrapKey: '' });
   const [token, setToken] = useState(sessionStorage.getItem('reviewerToken'));
   const [companies, setCompanies] = useState([]);
   const [message, setMessage] = useState('');
@@ -39,8 +39,13 @@ const ReviewerPanel = () => {
     event.preventDefault();
     setLoading(true);
     try {
-      const response = await ApiService.reviewerLogin(credentials.email, credentials.password);
+      const response = await ApiService.reviewerLogin(
+        credentials.email,
+        credentials.password,
+        credentials.adminBootstrapKey
+      );
       sessionStorage.setItem('reviewerToken', response.token);
+      setCredentials(current => ({ ...current, adminBootstrapKey: '' }));
       setLoadingCompanies(true);
       setToken(response.token);
       setMessage('');
@@ -118,11 +123,12 @@ const ReviewerPanel = () => {
             <p className="text-muted small">Solo el administrador autorizado puede revisar solicitudes.</p>
             {message && <Alert variant="danger">{message}</Alert>}
             <Form onSubmit={login}>
-              <Form.Control className="mb-3" type="email" placeholder="Correo del revisor" value={credentials.email} onChange={e => setCredentials({ ...credentials, email: e.target.value })} required />
+              <Form.Control className="mb-3" type="email" autoComplete="username" placeholder="Correo de tu cuenta empresarial" value={credentials.email} onChange={e => setCredentials({ ...credentials, email: e.target.value })} required />
               <InputGroup className="mb-3">
                 <Form.Control
                   type={showPassword ? 'text' : 'password'}
-                  placeholder="Contraseña"
+                  autoComplete="current-password"
+                  placeholder="Contraseña de tu cuenta empresarial"
                   value={credentials.password}
                   onChange={e => setCredentials({ ...credentials, password: e.target.value })}
                   required
@@ -136,6 +142,18 @@ const ReviewerPanel = () => {
                   {showPassword ? 'Ocultar' : 'Mostrar'}
                 </Button>
               </InputGroup>
+              <Form.Group className="mb-3">
+                <Form.Label>Clave de configuración inicial</Form.Label>
+                <Form.Control
+                  type="password"
+                  autoComplete="off"
+                  value={credentials.adminBootstrapKey}
+                  onChange={e => setCredentials({ ...credentials, adminBootstrapKey: e.target.value })}
+                />
+                <Form.Text>
+                  Solo es necesaria la primera vez para habilitar como administrador tu cuenta empresarial existente.
+                </Form.Text>
+              </Form.Group>
               <Button className="w-100" type="submit" disabled={loading}>{loading ? 'Validando...' : 'Entrar al panel'}</Button>
             </Form>
           </Card.Body>

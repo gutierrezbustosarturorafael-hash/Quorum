@@ -85,10 +85,10 @@ class ApiService {
     });
   }
 
-  static async reviewerLogin(email, password) {
+  static async reviewerLogin(email, password, adminBootstrapKey) {
     return this.request('/reviewer/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password })
+      body: JSON.stringify({ email, password, adminBootstrapKey })
     });
   }
 
