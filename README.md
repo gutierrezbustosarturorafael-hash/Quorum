@@ -95,10 +95,24 @@ Use a hosted MongoDB database such as MongoDB Atlas for production; a MongoDB in
 
 Configure Railway service variables without committing them:
 
-- Backend: `NODE_ENV=production`, `MONGODB_URI`, `JWT_SECRET` (at least 32 characters), `FRONTEND_URL` (the deployed frontend origin), `EMAIL_CREDENTIALS_ENCRYPTION_KEY` (64 hex characters), `TRUST_PROXY_HOPS=1`, `FORCE_HTTPS=true`, and `HTTPS_PUBLIC_ORIGIN` (the backend's HTTPS origin). Add the optional admin/reviewer variables only if that access is enabled.
+- Backend: `NODE_ENV=production`, `MONGODB_URI`, `JWT_SECRET` (at least 32 characters), `FRONTEND_URL` (the deployed frontend origin), `EMAIL_CREDENTIALS_ENCRYPTION_KEY` (64 hex characters), `TRUST_PROXY_HOPS=1`, `FORCE_HTTPS=true`, and `HTTPS_PUBLIC_ORIGIN` (the backend's HTTPS origin). To enable the single administrator account for the review panel, also set `ADMIN_EMAIL`, `ADMIN_PASSWORD_HASH` (a bcrypt hash, not the plain password), and `ADMIN_JWT_SECRET` (at least 32 characters) in the Railway backend service variables. The panel is available at `/administracion` on the deployed frontend.
 - Frontend: `REACT_APP_API_URL` set to the backend HTTPS origin plus `/api`, for example `https://your-api-domain.up.railway.app/api`. This variable is embedded at build time, so redeploy/rebuild the frontend after changing it.
 
-Generate secrets locally; never paste them into source files, commits, screenshots, or chat. Railway's container filesystem is ephemeral, so attach a persistent volume to the backend service mounted at `/app/uploads` to preserve uploaded PDFs and Excel workbooks across deployments. Restrict the database user's privileges, configure Atlas network access for Railway, and verify sign-in, uploads, document previews, and `/api/health` after deployment.
+Generate secrets locally; never paste them into source files, commits, screenshots, or chat. To create `ADMIN_PASSWORD_HASH` on Windows PowerShell from the `backend` directory (with dependencies installed), enter the password at the hidden prompt; only its bcrypt hash is printed:
+
+```powershell
+$secure = Read-Host "Administrator password" -AsSecureString
+$ptr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secure)
+try {
+  $env:QUORUM_ADMIN_PASSWORD = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($ptr)
+  node -e "require('bcryptjs').hash(process.env.QUORUM_ADMIN_PASSWORD, 12).then(console.log)"
+} finally {
+  Remove-Item Env:QUORUM_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+  [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($ptr)
+}
+```
+
+Generate `ADMIN_JWT_SECRET` locally with `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"`, then add the email, bcrypt hash, and generated secret as variables to the Railway backend service and redeploy it. The administrator is configured through these environment variables; it is not a regular database account. Railway's container filesystem is ephemeral, so attach a persistent volume to the backend service mounted at `/app/uploads` to preserve uploaded PDFs and Excel workbooks across deployments. Restrict the database user's privileges, configure Atlas network access for Railway, and verify sign-in, uploads, document previews, and `/api/health` after deployment.
 
 Employee account profiles record whether the person leads a department or the company. Existing profiles without a confirmed leadership selection are required to complete it in a non-dismissible profile dialog when they next sign in.
 
