@@ -5,6 +5,7 @@ import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import ApiService from '../services/apiService';
 import SlideCommit from './SlideCommit/SlideCommit';
+import { sortMeetingsByProximity } from '../utils/meetingDate';
 
 // ============================================================
 // TIPOS DE REUNION
@@ -1172,7 +1173,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
     return Number.isNaN(date.getTime()) ? null : date;
   };
   const now = new Date();
-  const pendingMeetings = (reuniones || []).filter(meeting =>
+  const openMeetings = (reuniones || []).filter(meeting =>
     ['pendiente', 'en-progreso', 'en_curso'].includes(
       normalizeMeetingStatus(meeting.status || meeting.estado)
     )
@@ -1183,6 +1184,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
     const dateMatches = !meetingDateFilter || meeting.fecha === meetingDateFilter;
     return titleMatches && dateMatches;
   });
+  const sortedVisibleMeetings = sortMeetingsByProximity(visibleMeetings, now);
   const nextMeeting = (reuniones || [])
     .map(meeting => ({ meeting, date: parseMeetingDate(meeting) }))
     .filter(item => item.date && item.date >= now
@@ -1196,42 +1198,60 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
     const normalizedStatus = normalizeMeetingStatus(meeting.status || meeting.estado || 'pendiente');
     const status = ESTADOS_MAP[normalizedStatus] || ESTADOS_MAP['pendiente'];
     const tipoLabel = 'Reunión';
+    const meetingDate = parseMeetingDate(meeting);
 
     return (
-      <Card key={meeting.id} className={`mb-2 ${isFollowUp ? 'ms-4 border-start' : 'mb-3'}`}>
-        <Card.Body className="py-2">
-          <div className="d-flex flex-wrap justify-content-between align-items-start">
-            <div className="flex-grow-1">
-              <div className="d-flex flex-wrap align-items-center gap-2">
-                <h6 className="mb-0 fw-semibold">{meeting.titulo}</h6>
-                <Badge style={{ background: status.bg, color: status.color }}>{formatMeetingStatus(normalizedStatus)}</Badge>
-                {normalizedStatus === 'finalizada' && (
-                  <Badge bg={meeting.resultadoExitoso ? 'success' : 'danger'}>
-                    {meeting.resultadoExitoso ? 'Exitoso' : 'No Exitoso'}
-                  </Badge>
-                )}
-                <Badge bg="secondary" className="small">{tipoLabel}</Badge>
-                {meeting.recurrenciaActiva && <Badge bg="primary" className="small">Cada semana</Badge>}
-                {meeting.convocatoriaEnviada && <Badge bg="info" className="small">Convocatoria enviada</Badge>}
+      <Card key={meeting.id} className={`meeting-list-card ${isFollowUp ? 'mb-2 ms-4 border-start' : 'mb-3'}`}>
+        <Card.Body>
+          <div className="meeting-list-layout">
+            <div className="meeting-date-marker" aria-label={meetingDate
+              ? meetingDate.toLocaleDateString('es-MX', { day: 'numeric', month: 'long', year: 'numeric' })
+              : meeting.fecha || 'Fecha por definir'}>
+              {meetingDate ? (
+                <>
+                  <strong>{meetingDate.toLocaleDateString('es-MX', { day: '2-digit' })}</strong>
+                  <span>{meetingDate.toLocaleDateString('es-MX', { month: 'short' }).replace('.', '')}</span>
+                  <small>{meetingDate.getFullYear()}</small>
+                </>
+              ) : <span>Por definir</span>}
+            </div>
+            <div className="meeting-list-content">
+              <div className="meeting-list-heading">
+                <h3>{meeting.titulo}</h3>
+                <div className="meeting-list-badges">
+                  <Badge style={{ background: status.bg, color: status.color }}>{formatMeetingStatus(normalizedStatus)}</Badge>
+                  {normalizedStatus === 'finalizada' && (
+                    <Badge bg={meeting.resultadoExitoso ? 'success' : 'danger'}>
+                      {meeting.resultadoExitoso ? 'Exitoso' : 'No Exitoso'}
+                    </Badge>
+                  )}
+                  <Badge bg="secondary">{tipoLabel}</Badge>
+                  {meeting.recurrenciaActiva && <Badge bg="primary">Cada semana</Badge>}
+                  {meeting.convocatoriaEnviada && <Badge bg="info">Convocatoria enviada</Badge>}
+                </div>
               </div>
-              <div className="d-flex flex-wrap gap-3 small text-muted">
-                <span>{meeting.fecha} - {meeting.hora}</span>
-                <span>{meeting.lugar}</span>
-                <span>Coord: {meeting.coordinador}</span>
-                <span>{meeting.duracion}</span>
+              <div className="meeting-list-time">
+                {meetingDate
+                  ? `${meetingDate.toLocaleDateString('es-MX', { weekday: 'long' })} · ${meeting.hora || 'Hora por definir'}`
+                  : `${meeting.fecha || 'Fecha por definir'} · ${meeting.hora || 'Hora por definir'}`}
               </div>
-              <div className="mt-1 small">
-                <p className="mb-0"><strong>Objetivo:</strong> {meeting.objetivo}</p>
-                <p className="mb-0"><strong>Participantes:</strong> {meeting.participantes?.join(', ')}</p>
-                {meeting.conclusion && <p className="mb-0"><strong>Conclusion:</strong> {meeting.conclusion}</p>}
+              <div className="meeting-list-meta">
+                {meeting.lugar && <span><strong>Lugar:</strong> {meeting.lugar}</span>}
+                {meeting.coordinador && <span><strong>Coordina:</strong> {meeting.coordinador}</span>}
+                {meeting.duracion && <span><strong>Duración:</strong> {meeting.duracion}</span>}
               </div>
+              {meeting.objetivo && <p className="meeting-list-description"><strong>Objetivo:</strong> {meeting.objetivo}</p>}
+              {meeting.participantes?.length > 0 && (
+                <p className="meeting-list-description"><strong>Participantes:</strong> {meeting.participantes.join(', ')}</p>
+              )}
+              {meeting.conclusion && <p className="meeting-list-description"><strong>Conclusión:</strong> {meeting.conclusion}</p>}
               {meeting.minuta && (
-                <div className="bg-light p-1 rounded small mt-1">
+                <div className="meeting-list-minute">
                   <strong>Minuta:</strong> {meeting.minuta.length > 100 ? meeting.minuta.slice(0, 100) + '...' : meeting.minuta}
                 </div>
               )}
             </div>
-            <div className="d-flex gap-1 mt-1">
+            <div className="meeting-list-actions">
               {!isFollowUp && (
                 <>
                   {normalizedStatus === 'pendiente' && (
@@ -1297,7 +1317,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
                       objetivo: meeting.objetivo,
                       coordinador: meeting.coordinador,
                       departamentos: meeting.departamentos,
-                      agenda: meeting.agenda.join('\n'),
+                      agenda: (meeting.agenda || []).join('\n'),
                       tipoReunion: 'general'
                     });
                     setModals({ ...modals, followUp: true });
@@ -1378,7 +1398,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
           {!isFollowUp && meeting.seguimientos?.length > 0 && (
             <div className="mt-2 pt-2 border-top">
               <div className="small fw-semibold text-muted mb-1">Seguimientos:</div>
-              {meeting.seguimientos.map(fu => renderMeetingCard(fu, true, meeting))}
+              {sortMeetingsByProximity(meeting.seguimientos, now).map(fu => renderMeetingCard(fu, true, meeting))}
             </div>
           )}
         </Card.Body>
@@ -1533,88 +1553,124 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
   // RENDER PRINCIPAL
   // ============================================================
   return (
-    <div>
+    <div className="meetings-manager-page">
       {followUpFeedback && (
         <Alert variant="primary" dismissible onClose={() => setFollowUpFeedback('')} className="app-inline-notification">
           {followUpFeedback}
         </Alert>
       )}
-      {/* HEADER */}
-      <div className="d-flex flex-wrap justify-content-between align-items-center mb-4">
+      <div className="meetings-page-heading">
         <div>
-          <h2 className="h4 mb-0">Gestion de Reuniones</h2>
-          <div className="small text-muted mt-1">Los empleados consultan sus reuniones e invitaciones con su cuenta individual de Quorum.</div>
+          <span className="meetings-page-eyebrow">AGENDA Y SEGUIMIENTO</span>
+          <h2>Gestión de reuniones</h2>
+          <p>Organiza tus reuniones y mantén al equipo al tanto de cada actividad.</p>
         </div>
-        <div className="d-flex align-items-center gap-2 flex-wrap">
-          <Button variant="primary" onClick={() => setModals({ ...modals, new: true })}>
-            + Nueva Reunion
-          </Button>
-        </div>
+        <Button variant="primary" onClick={() => setModals({ ...modals, new: true })}>
+          Nueva reunión
+        </Button>
       </div>
 
-      <Alert variant="info" className="mb-4">
-        <div className="row g-3 align-items-center">
-          <div className="col-sm-4">
-            <div className="small text-muted">Reuniones pendientes</div>
-            <div className="h4 fw-bold mb-0">{pendingMeetings.length}</div>
-          </div>
-          <div className="col-sm-8">
-            <div className="small text-muted">Próxima reunión</div>
-            {nextMeeting ? (
-              <>
-                <div className="fw-semibold">{nextMeeting.meeting.titulo}</div>
-                <div className="small">
-                  {nextMeeting.date.toLocaleString('es-MX', {
-                    dateStyle: 'medium',
-                    timeStyle: 'short'
-                  })}
-                </div>
-              </>
-            ) : <div className="fw-semibold">No hay reuniones próximas agendadas.</div>}
-          </div>
+      <section className="meeting-overview mb-4" aria-label="Resumen de reuniones">
+        <div className="meeting-overview-count">
+          <span>Reuniones abiertas</span>
+          <strong>{openMeetings.length}</strong>
+          <small>Pendientes o en curso</small>
         </div>
-      </Alert>
+        <div className="meeting-overview-next">
+          <span className="meeting-overview-label">Próxima reunión</span>
+          {nextMeeting ? (
+            <>
+              <strong>{nextMeeting.meeting.titulo}</strong>
+              <span>
+                {nextMeeting.date.toLocaleString('es-MX', {
+                  weekday: 'long',
+                  day: 'numeric',
+                  month: 'long',
+                  hour: 'numeric',
+                  minute: '2-digit'
+                })}
+              </span>
+            </>
+          ) : (
+            <>
+              <strong>No hay próximas reuniones</strong>
+              <span>Cuando programes una, aparecerá aquí.</span>
+            </>
+          )}
+        </div>
+      </section>
 
-      {/* LISTA DE REUNIONES */}
       {!!reuniones?.length && (
-        <Row className="g-2 mb-3">
-          <Col md={7}>
-            <Form.Label className="small text-muted mb-1">Buscar reunión por nombre</Form.Label>
-            <Form.Control
-              type="search"
-              value={meetingSearch}
-              onChange={event => setMeetingSearch(event.target.value)}
-              placeholder="Escribe el nombre de la reunión"
-            />
-          </Col>
-          <Col md={5}>
-            <Form.Label className="small text-muted mb-1">Filtrar por fecha</Form.Label>
-            <div className="d-flex gap-2">
-              <Form.Control
-                type="date"
-                value={meetingDateFilter}
-                onChange={event => setMeetingDateFilter(event.target.value)}
-              />
-              {meetingDateFilter && (
-                <Button variant="outline-secondary" onClick={() => setMeetingDateFilter('')}>
-                  Limpiar
-                </Button>
-              )}
+        <section className="meeting-filters mb-3" aria-label="Buscar y filtrar reuniones">
+          <div className="meeting-filters-heading">
+            <div>
+              <h3>Todas las reuniones</h3>
+              <p>Busca por nombre o selecciona una fecha.</p>
             </div>
-          </Col>
-        </Row>
+            <span>{sortedVisibleMeetings.length} de {reuniones.length}</span>
+          </div>
+          <div className="row g-3">
+            <Col md={7}>
+              <Form.Label htmlFor="meeting-search" className="small text-muted mb-1">Buscar por nombre</Form.Label>
+              <Form.Control
+                id="meeting-search"
+                type="search"
+                value={meetingSearch}
+                onChange={event => setMeetingSearch(event.target.value)}
+                placeholder="Escribe el nombre de la reunión"
+              />
+            </Col>
+            <Col md={5}>
+              <Form.Label htmlFor="meeting-date-filter" className="small text-muted mb-1">Filtrar por fecha</Form.Label>
+              <div className="d-flex gap-2">
+                <Form.Control
+                  id="meeting-date-filter"
+                  type="date"
+                  value={meetingDateFilter}
+                  onChange={event => setMeetingDateFilter(event.target.value)}
+                />
+                {meetingDateFilter && (
+                  <Button variant="outline-secondary" onClick={() => setMeetingDateFilter('')}>
+                    Limpiar
+                  </Button>
+                )}
+              </div>
+            </Col>
+          </div>
+        </section>
       )}
       {!reuniones?.length ? (
-        <Card className="text-center p-5">
-          <div className="text-muted">No hay reuniones registradas</div>
-          <Button variant="primary" className="mt-3" onClick={() => setModals({ ...modals, new: true })}>
-            + Programar primera reunion
-          </Button>
+        <Card className="meeting-empty-card text-center">
+          <Card.Body>
+            <h3>Aún no hay reuniones</h3>
+            <p>Programa la primera y comparte los detalles con tu equipo.</p>
+            <Button variant="primary" onClick={() => setModals({ ...modals, new: true })}>
+              Programar primera reunión
+            </Button>
+          </Card.Body>
         </Card>
       ) : (
-        visibleMeetings.length
-          ? visibleMeetings.map(m => renderMeetingCard(m))
-          : <Alert variant="light">No hay reuniones que coincidan con esos filtros.</Alert>
+        sortedVisibleMeetings.length
+          ? sortedVisibleMeetings.map(m => renderMeetingCard(m))
+          : (
+            <Card className="meeting-empty-card">
+              <Card.Body>
+                <h3>No encontramos reuniones</h3>
+                <p>Prueba con otro nombre o limpia el filtro de fecha.</p>
+                {(meetingSearch || meetingDateFilter) && (
+                  <Button
+                    variant="outline-primary"
+                    onClick={() => {
+                      setMeetingSearch('');
+                      setMeetingDateFilter('');
+                    }}
+                  >
+                    Limpiar filtros
+                  </Button>
+                )}
+              </Card.Body>
+            </Card>
+          )
       )}
 
       {/* ===== MODAL NUEVA REUNION ===== */}

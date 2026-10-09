@@ -6,6 +6,7 @@ import RisingLines from './RisingLines';
 import PrivacyNotice from './PrivacyNotice';
 import ProductivityGraph from './ProductivityGraph';
 import CompanyOrganizationChart from './CompanyOrganizationChart';
+import { sortMeetingsByProximity } from '../utils/meetingDate';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const SERVER_URL = API_URL.replace(/\/api\/?$/, '').replace(/\/+$/, '');
@@ -548,16 +549,11 @@ const EmployeePortal = ({ companyId }) => {
   const filteredCompanyMeetings = companyMeetingDate
     ? companyMeetings.filter(meeting => String(meeting.fecha || '').slice(0, 10) === companyMeetingDate)
     : companyMeetings;
-  const sortMeetingsByDate = meetings => [...meetings].sort((left, right) =>
-    `${left.fecha || ''}T${left.hora || '00:00'}`.localeCompare(`${right.fecha || ''}T${right.hora || '00:00'}`)
-  );
-  const sortedFilteredCompanyMeetings = sortMeetingsByDate(filteredCompanyMeetings);
-  const sortedPersonalAgenda = [
+  const sortedFilteredCompanyMeetings = sortMeetingsByProximity(filteredCompanyMeetings);
+  const sortedPersonalAgenda = sortMeetingsByProximity([
     ...personalRecords.map(meeting => ({ ...meeting, employeeAgendaType: 'record' })),
     ...personalMeetings.map(meeting => ({ ...meeting, employeeAgendaType: 'meeting' }))
-  ].sort((left, right) =>
-    `${left.fecha || ''}T${left.hora || '00:00'}`.localeCompare(`${right.fecha || ''}T${right.hora || '00:00'}`)
-  );
+  ]);
   const managedTeamAreas = [...new Set([
     portal?.profile?.area,
     ...(portal?.profile?.areasACargo || [])
