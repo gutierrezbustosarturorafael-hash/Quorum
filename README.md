@@ -97,6 +97,8 @@ Configure Railway service variables without committing them:
 
 - Backend: `NODE_ENV=production`, `MONGODB_URI`, `JWT_SECRET` (at least 32 characters), `FRONTEND_URL` (the deployed frontend origin), `EMAIL_CREDENTIALS_ENCRYPTION_KEY` (64 hex characters), `TRUST_PROXY_HOPS=1`, `FORCE_HTTPS=true`, and `HTTPS_PUBLIC_ORIGIN` (the backend's HTTPS origin). Before setting up the administrator, also set `ADMIN_BOOTSTRAP_KEY` in the Railway backend service variables. The panel is available at `/administracion` on the deployed frontend.
 - Frontend: `REACT_APP_API_URL` set to the backend HTTPS origin plus `/api`, for example `https://your-api-domain.up.railway.app/api`. This variable is embedded at build time, so redeploy/rebuild the frontend after changing it.
+- The frontend build omits production source maps and pre-compresses text assets, then serves gzip variants to compatible browsers. This reduces deployed artifacts and transfer size without per-request compression work. It uses system fonts rather than downloading a font from a third party.
+- For a small deployment, the backend defaults to a MongoDB pool of up to 5 connections with no permanently idle minimum. Override `MONGODB_MAX_POOL_SIZE` and `MONGODB_MIN_POOL_SIZE` on the backend only if measured concurrent load requires it. Weekly recurring meetings are checked every 5 minutes instead of every minute.
 
 Generate secrets locally; never paste them into source files, commits, screenshots, or chat. Generate `ADMIN_BOOTSTRAP_KEY` with:
 

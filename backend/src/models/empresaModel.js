@@ -342,7 +342,8 @@ class EmpresaModel {
       status: { $in: ['pendiente', 'en-progreso', 'en_curso'] }
     })
       .select('titulo fecha hora lugar duracion objetivo coordinador tipoReunion status estado participantes empleadosInvitados departamentos documentos esParaTodos')
-      .sort({ fecha: 1, hora: 1 });
+      .sort({ fecha: 1, hora: 1 })
+      .lean();
 
     return meetings.reduce((result, reunion) => {
       const time = new Date(`${reunion.fecha}T${reunion.hora || '00:00'}`);
@@ -358,7 +359,7 @@ class EmpresaModel {
       );
       if (!invited && !areaMeeting) return result;
 
-      const meeting = reunion.toObject();
+      const meeting = reunion;
       const category = invited && (isPersonalMeeting || !areaMeeting)
         ? 'personal'
         : 'empresa';
@@ -897,14 +898,16 @@ class EmpresaModel {
   // ---------- OBTENER EMPRESA COMPLETA ----------
   static async getEmpresaCompleta(empresaId) {
     try {
-      const empresa = await Empresa.findById(empresaId);
+      const [empresa, reuniones] = await Promise.all([
+        Empresa.findById(empresaId).lean(),
+        Reunion.find({ empresaId }).sort({ fecha: -1, createdAt: -1 }).lean()
+      ]);
       if (!empresa) return null;
 
-      const empresaData = empresa.toObject();
+      const empresaData = { ...empresa };
       delete empresaData.objetivos;
       delete empresaData.smtpConvocatorias;
 
-      const reuniones = await Reunion.find({ empresaId }).sort({ fecha: -1, createdAt: -1 });
       const smtpConvocatorias = empresa.smtpConvocatorias?.email
         ? {
           configured: true,

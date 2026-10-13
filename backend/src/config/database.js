@@ -5,6 +5,11 @@ const readPositiveInteger = (name, fallback) => {
   return Number.isInteger(value) && value > 0 ? value : fallback;
 };
 
+const readNonNegativeInteger = (name, fallback) => {
+  const value = Number(process.env[name]);
+  return Number.isInteger(value) && value >= 0 ? value : fallback;
+};
+
 const connectDB = async () => {
   try {
     const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sistema_gestion';
@@ -16,8 +21,8 @@ const connectDB = async () => {
       serverSelectionTimeoutMS: readPositiveInteger('MONGODB_SERVER_SELECTION_TIMEOUT_MS', 10000),
       connectTimeoutMS: readPositiveInteger('MONGODB_CONNECT_TIMEOUT_MS', 10000),
       socketTimeoutMS: readPositiveInteger('MONGODB_SOCKET_TIMEOUT_MS', 45000),
-      maxPoolSize: readPositiveInteger('MONGODB_MAX_POOL_SIZE', 10),
-      minPoolSize: readPositiveInteger('MONGODB_MIN_POOL_SIZE', 1),
+      maxPoolSize: readPositiveInteger('MONGODB_MAX_POOL_SIZE', 5),
+      minPoolSize: readNonNegativeInteger('MONGODB_MIN_POOL_SIZE', 0),
       retryWrites: true
     });
     console.log(` MongoDB Connected: ${conn.connection.host}`);

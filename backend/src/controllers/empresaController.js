@@ -435,11 +435,17 @@ class EmpresaController {
     try {
       const empresaId = req.user.empresaId;
       await EmpresaModel.ensureManualDirectivoDirectory(empresaId);
-      const data = await EmpresaModel.getEmpresaCompleta(empresaId);
+      const [data, empleados] = await Promise.all([
+        EmpresaModel.getEmpresaCompleta(empresaId),
+        EmpresaModel.getEmpleadoDirectory(empresaId)
+      ]);
       if (!data) {
         return res.status(404).json({ success: false, message: 'Empresa no encontrada' });
       }
-      const empleados = await EmpresaModel.getEmpleadoDirectory(empresaId);
+      const [organigrama, codigoInvitacion] = await Promise.all([
+        EmpresaModel.getCompanyOrganizationChart(empresaId),
+        EmpresaModel.getCompanyInviteCode(empresaId)
+      ]);
       res.json({
         success: true,
         data: {
@@ -447,8 +453,8 @@ class EmpresaController {
           objetivos: hideSubareaObjectives(data.objetivos || [], data.directivos || [], empleados),
           reuniones: data.reuniones.map(reunion => protectMeetingDocuments(reunion, empresaId)),
           empleados,
-          organigrama: await EmpresaModel.getCompanyOrganizationChart(empresaId),
-          codigoInvitacion: await EmpresaModel.getCompanyInviteCode(empresaId),
+          organigrama,
+          codigoInvitacion,
           planEstrategico: protectDocument(data.empresa?.planEstrategico, empresaId)
         }
       });
@@ -633,32 +639,27 @@ class EmpresaController {
       if (!req.user.employeeId) {
         return res.status(403).json({ success: false, message: 'Inicia sesión con tu cuenta individual de empleado.' });
       }
-      const company = await EmpresaModel.getEmployeePortalData(req.user.empresaId);
+      const [company, profile] = await Promise.all([
+        EmpresaModel.getEmployeePortalData(req.user.empresaId),
+        EmpresaModel.getEmpleadoProfile(req.user.employeeId)
+      ]);
       if (!company) {
         return res.status(404).json({ success: false, message: 'No se encontró la empresa para este portal.' });
       }
-      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({ success: false, message: 'La cuenta no pertenece a esta empresa.' });
       }
-      const indicadoresArea = await EmpresaModel.getEmployeeAreaObjectives(req.user.empresaId, profile);
       const missingProfileFields = EmpresaModel.getMissingEmployeeProfileFields(profile);
       const profileComplete = missingProfileFields.length === 0;
-      const meetings = profileComplete
-        ? await EmpresaModel.getEmployeeMeetings(req.user.empresaId, profile)
-        : [];
-      const reunionesPersonales = await EmpresaModel.getEmployeePersonalMeetings(
-        req.user.empresaId,
-        req.user.employeeId
-      );
-      const indicadoresPersonales = await EmpresaModel.getEmployeePersonalObjectives(
-        req.user.empresaId,
-        req.user.employeeId
-      );
-      const indicadoresEquipo = await EmpresaModel.getEmployeeTeamObjectives(
-        req.user.empresaId,
-        profile
-      );
+      const [indicadoresArea, meetings, reunionesPersonales, indicadoresPersonales, indicadoresEquipo] = await Promise.all([
+        EmpresaModel.getEmployeeAreaObjectives(req.user.empresaId, profile),
+        profileComplete
+          ? EmpresaModel.getEmployeeMeetings(req.user.empresaId, profile)
+          : Promise.resolve([]),
+        EmpresaModel.getEmployeePersonalMeetings(req.user.empresaId, req.user.employeeId),
+        EmpresaModel.getEmployeePersonalObjectives(req.user.empresaId, req.user.employeeId),
+        EmpresaModel.getEmployeeTeamObjectives(req.user.empresaId, profile)
+      ]);
       res.json({
         success: true,
         data: {

@@ -2,6 +2,7 @@ const EmpresaModel = require('../models/empresaModel');
 const EmpresaController = require('../controllers/empresaController');
 
 let schedulerRunning = false;
+const WEEKLY_MEETING_CHECK_INTERVAL_MS = 5 * 60 * 1000;
 
 const processWeeklyMeetings = async () => {
   if (schedulerRunning) return;
@@ -23,7 +24,7 @@ const processWeeklyMeetings = async () => {
 
 const startWeeklyMeetingScheduler = () => {
   processWeeklyMeetings();
-  const interval = setInterval(processWeeklyMeetings, 60 * 1000);
+  const interval = setInterval(processWeeklyMeetings, WEEKLY_MEETING_CHECK_INTERVAL_MS);
   interval.unref();
   return interval;
 };

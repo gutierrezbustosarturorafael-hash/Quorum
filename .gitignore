@@ -27,6 +27,7 @@ backend/.env
 **/.env
 **/.env.*
 !backend/.env.example
+!frontend/.env.production
 backend/uploads/
 
 npm-debug.log*
