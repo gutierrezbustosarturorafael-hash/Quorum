@@ -929,6 +929,12 @@ class EmpresaModel {
     }
   }
 
+  static async getStrategicPlan(empresaId) {
+    const empresa = await Empresa.findById(empresaId).select('planEstrategico').lean();
+    if (!empresa) return null;
+    return empresa.planEstrategico || null;
+  }
+
   static async getCompanyExportData(empresaId) {
     const empresa = await Empresa.findById(empresaId)
       .select('nombre mision vision valores estrategias metas indicadores departamentos directivos foda')

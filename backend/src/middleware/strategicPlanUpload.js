@@ -1,5 +1,5 @@
-const multer = require('multer');
 const path = require('path');
+const { createUpload } = require('../utils/uploadFiles');
 
 const allowedMimeTypes = new Set([
   'application/pdf',
@@ -8,8 +8,7 @@ const allowedMimeTypes = new Set([
 ]);
 const allowedExtensions = new Set(['.pdf', '.doc', '.docx']);
 
-module.exports = multer({
-  storage: multer.memoryStorage(),
+module.exports = createUpload({
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();

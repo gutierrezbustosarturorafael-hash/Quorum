@@ -1,5 +1,5 @@
 const path = require('path');
-const multer = require('multer');
+const { createUpload } = require('../utils/uploadFiles');
 
 const allowedMimeTypes = new Set([
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -8,8 +8,7 @@ const allowedMimeTypes = new Set([
   'application/octet-stream'
 ]);
 
-module.exports = multer({
-  storage: multer.memoryStorage(),
+module.exports = createUpload({
   limits: { fileSize: 15 * 1024 * 1024 },
   fileFilter: (req, file, callback) => {
     const extension = path.extname(file.originalname).toLowerCase();

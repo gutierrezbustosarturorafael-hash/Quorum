@@ -4,11 +4,11 @@ const jwt = require('jsonwebtoken');
 const emailService = require('../services/emailService');
 const fs = require('fs');
 const path = require('path');
-const XLSX = require('xlsx');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { validateEncryptionKey } = require('../utils/smtpCredentials');
 const { extractSpreadsheetInsights, readSpreadsheetInsights } = require('../utils/spreadsheetInsights');
+const { moveUploadedFile } = require('../utils/uploadFiles');
 
 const getStoredMeetingDocumentPath = documento => {
   const uploadsRoot = path.resolve(__dirname, '..', '..', 'uploads', 'reuniones');
@@ -1055,27 +1055,30 @@ class EmpresaController {
         return res.status(400).json({ success: false, message: 'Selecciona un archivo PDF o Word para el plan estratégico.' });
       }
       const empresaId = String(req.user.empresaId);
-      const currentData = await EmpresaModel.getEmpresaCompleta(empresaId);
+      const currentPlan = await EmpresaModel.getStrategicPlan(empresaId);
       const extension = path.extname(req.file.originalname).toLowerCase();
       const safeName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${extension}`;
       const directory = path.join(__dirname, '..', '..', 'uploads', 'planes', empresaId);
-      fs.mkdirSync(directory, { recursive: true });
+      await fs.promises.mkdir(directory, { recursive: true });
       savedFilePath = path.join(directory, safeName);
-      fs.writeFileSync(savedFilePath, req.file.buffer);
+      await moveUploadedFile(req.file, savedFilePath);
       const planEstrategico = await EmpresaModel.savePlanEstrategico(empresaId, {
         nombreArchivo: req.file.originalname,
         url: `/uploads/planes/${empresaId}/${safeName}`,
         fechaSubida: new Date()
       });
-      const oldUrl = currentData?.empresa?.planEstrategico?.url;
+      savedFilePath = '';
+      const oldUrl = currentPlan?.url;
       if (oldUrl && oldUrl !== planEstrategico.url) {
         const uploadRoot = path.resolve(__dirname, '..', '..', 'uploads');
         const oldFilePath = path.resolve(uploadRoot, oldUrl.replace(/^\/uploads\/?/, ''));
-        if (oldFilePath.startsWith(`${uploadRoot}${path.sep}`) && fs.existsSync(oldFilePath)) {
+        if (oldFilePath.startsWith(`${uploadRoot}${path.sep}`)) {
           try {
-            fs.unlinkSync(oldFilePath);
+            await fs.promises.unlink(oldFilePath);
           } catch (cleanupError) {
-            console.error('Could not remove replaced strategic plan:', cleanupError.message);
+            if (cleanupError.code !== 'ENOENT') {
+              console.error('Could not remove replaced strategic plan:', cleanupError.message);
+            }
           }
         }
       }
@@ -1084,7 +1087,13 @@ class EmpresaController {
         data: protectDocument(planEstrategico, empresaId)
       });
     } catch (error) {
-      if (savedFilePath && fs.existsSync(savedFilePath)) fs.unlinkSync(savedFilePath);
+      if (savedFilePath) {
+        await fs.promises.unlink(savedFilePath).catch(cleanupError => {
+          if (cleanupError.code !== 'ENOENT') {
+            console.error('Strategic plan cleanup error:', cleanupError.message);
+          }
+        });
+      }
       console.error('Strategic plan upload error:', error.message);
       res.status(error.statusCode || 500).json({
         success: false,
@@ -1288,7 +1297,7 @@ class EmpresaController {
       await fs.promises.mkdir(directory, { recursive: true });
       const safeName = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${extension}`;
       savedFilePath = path.join(directory, safeName);
-      await fs.promises.writeFile(savedFilePath, req.file.buffer);
+      await moveUploadedFile(req.file, savedFilePath);
 
       const documento = await EmpresaModel.addReunionDocumento(req.user.empresaId, reunion._id, {
         area: profile.area,
@@ -1399,6 +1408,7 @@ class EmpresaController {
   }
 
   static async uploadReunionDocumento(req, res) {
+    let pendingFilePath = '';
     try {
       const empresaId = req.user.empresaId;
       const { id } = req.params;
@@ -1425,30 +1435,21 @@ class EmpresaController {
         await fs.promises.mkdir(directory, { recursive: true });
         const safeName = `${crypto.randomBytes(16).toString('hex')}.pdf`;
         const filePath = path.join(directory, safeName);
-        await fs.promises.writeFile(filePath, files[0].buffer, { flag: 'wx' });
-        try {
-          const documento = await EmpresaModel.addReunionDocumento(empresaId, id, {
-            area: 'Presentación',
-            nombreArchivo: files[0].originalname,
-            tipo: 'PDF',
-            url: `/uploads/reuniones/${id}/${safeName}`,
-            esPresentacionPrincipal: true,
-            fechaSubida: new Date()
-          });
-          return res.status(201).json({
-            success: true,
-            data: [protectDocument(documento, empresaId)]
-          });
-        } catch (error) {
-          try {
-            await fs.promises.unlink(filePath);
-          } catch (cleanupError) {
-            if (cleanupError.code !== 'ENOENT') {
-              console.error('Presentation upload cleanup error:', cleanupError.message);
-            }
-          }
-          throw error;
-        }
+        pendingFilePath = filePath;
+        await moveUploadedFile(files[0], filePath);
+        const documento = await EmpresaModel.addReunionDocumento(empresaId, id, {
+          area: 'Presentación',
+          nombreArchivo: files[0].originalname,
+          tipo: 'PDF',
+          url: `/uploads/reuniones/${id}/${safeName}`,
+          esPresentacionPrincipal: true,
+          fechaSubida: new Date()
+        });
+        pendingFilePath = '';
+        return res.status(201).json({
+          success: true,
+          data: [protectDocument(documento, empresaId)]
+        });
       }
 
       if (!area) {
@@ -1456,7 +1457,7 @@ class EmpresaController {
       }
 
       const directory = path.join(__dirname, '..', '..', 'uploads', 'reuniones', String(id));
-      fs.mkdirSync(directory, { recursive: true });
+      await fs.promises.mkdir(directory, { recursive: true });
       const documentos = [];
       for (const file of files) {
         const extension = path.extname(file.originalname).toLowerCase();
@@ -1464,7 +1465,8 @@ class EmpresaController {
           .normalize('NFD')
           .replace(/[\u0300-\u036f]/g, '')
           .replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-        fs.writeFileSync(path.join(directory, safeName), file.buffer);
+        pendingFilePath = path.join(directory, safeName);
+        await moveUploadedFile(file, pendingFilePath);
         const documento = await EmpresaModel.addReunionDocumento(empresaId, id, {
           area,
           nombreArchivo: file.originalname,
@@ -1472,11 +1474,19 @@ class EmpresaController {
           url: `/uploads/reuniones/${id}/${safeName}`,
           fechaSubida: new Date()
         });
+        pendingFilePath = '';
         documentos.push(protectDocument(documento, empresaId));
       }
 
       res.status(201).json({ success: true, data: documentos });
     } catch (error) {
+      if (pendingFilePath) {
+        await fs.promises.unlink(pendingFilePath).catch(cleanupError => {
+          if (cleanupError.code !== 'ENOENT') {
+            console.error('Meeting document cleanup error:', cleanupError.message);
+          }
+        });
+      }
       console.error('Upload reunion document error:', error.message);
       res.status(error.statusCode || 500).json({
         success: false,
@@ -1556,25 +1566,38 @@ class EmpresaController {
           message: 'El archivo Excel ya no está disponible en el servidor.'
         });
       }
+      const XLSX = require('xlsx');
       const workbook = XLSX.readFile(filePath, { cellDates: true });
       const insights = extractSpreadsheetInsights(workbook);
       const maxRows = 500;
       const maxColumns = 50;
       const sheets = workbook.SheetNames.map(name => {
-        const allRows = XLSX.utils.sheet_to_json(workbook.Sheets[name], {
+        const sheet = workbook.Sheets[name];
+        const sourceRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+        const previewRange = {
+          s: sourceRange.s,
+          e: {
+            r: Math.min(sourceRange.e.r, sourceRange.s.r + maxRows - 1),
+            c: Math.min(sourceRange.e.c, sourceRange.s.c + maxColumns - 1)
+          }
+        };
+        const rows = XLSX.utils.sheet_to_json(sheet, {
           header: 1,
           raw: false,
           defval: '',
-          blankrows: false
+          blankrows: false,
+          range: previewRange
         });
         return {
           name,
-          rows: allRows.slice(0, maxRows).map(row =>
+          rows: rows.map(row =>
             row.slice(0, maxColumns).map(value => String(value ?? ''))
           ),
-          truncated: allRows.length > maxRows || allRows.some(row => row.length > maxColumns)
+          truncated: sourceRange.e.r - sourceRange.s.r + 1 > maxRows
+            || sourceRange.e.c - sourceRange.s.c + 1 > maxColumns
         };
       });
+      workbook.SheetNames.forEach(name => delete workbook.Sheets[name]);
       res.json({ success: true, data: { sheets, insights } });
     } catch (error) {
       console.error('Preview reunion document error:', error.message);
@@ -1586,6 +1609,7 @@ class EmpresaController {
   }
 
   static async replaceReunionDocumento(req, res) {
+    let savedFilePath = '';
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -1610,8 +1634,9 @@ class EmpresaController {
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-zA-Z0-9._-]/g, '_')}`;
       const directory = path.join(__dirname, '..', '..', 'uploads', 'reuniones', String(req.params.id));
-      fs.mkdirSync(directory, { recursive: true });
-      fs.writeFileSync(path.join(directory, safeName), req.file.buffer);
+      await fs.promises.mkdir(directory, { recursive: true });
+      savedFilePath = path.join(directory, safeName);
+      await moveUploadedFile(req.file, savedFilePath);
 
       const result = await EmpresaModel.replaceReunionDocumento(
         req.user.empresaId,
@@ -1624,15 +1649,27 @@ class EmpresaController {
           fechaSubida: new Date()
         }
       );
+      savedFilePath = '';
       if (result.oldUrl) {
         const oldPath = path.join(__dirname, '..', '..', result.oldUrl.replace(/^\/+/, ''));
-        if (fs.existsSync(oldPath)) fs.unlinkSync(oldPath);
+        await fs.promises.unlink(oldPath).catch(error => {
+          if (error.code !== 'ENOENT') {
+            console.error('Could not remove replaced meeting document:', error.message);
+          }
+        });
       }
       res.json({
         success: true,
         data: protectDocument(result.documento, req.user.empresaId)
       });
     } catch (error) {
+      if (savedFilePath) {
+        await fs.promises.unlink(savedFilePath).catch(cleanupError => {
+          if (cleanupError.code !== 'ENOENT') {
+            console.error('Could not remove failed replacement document:', cleanupError.message);
+          }
+        });
+      }
       console.error('Replace reunion document error:', error.message);
       res.status(error.statusCode || 500).json({
         success: false,

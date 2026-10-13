@@ -1,4 +1,4 @@
-const XLSX = require('xlsx');
+const getXlsx = () => require('xlsx');
 
 const normalize = value => String(value || '')
   .normalize('NFD')
@@ -6,12 +6,12 @@ const normalize = value => String(value || '')
   .trim()
   .toLowerCase();
 
-const cellAt = (sheet, row, column) => sheet[XLSX.utils.encode_cell({ r: row, c: column })];
+const cellAt = (sheet, row, column) => sheet[getXlsx().utils.encode_cell({ r: row, c: column })];
 
 const displayValue = cell => {
   if (!cell) return '';
   if (cell.w !== undefined) return String(cell.w).trim();
-  if (cell.v !== undefined) return String(XLSX.utils.format_cell(cell)).trim();
+  if (cell.v !== undefined) return String(getXlsx().utils.format_cell(cell)).trim();
   return '';
 };
 
@@ -37,7 +37,7 @@ const extractNumber = value => {
 };
 
 const extractPeriod = sheet => {
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+  const range = getXlsx().utils.decode_range(sheet['!ref'] || 'A1:A1');
   for (let row = range.s.r; row <= Math.min(range.e.r, 5); row += 1) {
     for (let column = range.s.c; column <= range.e.c; column += 1) {
       if (normalize(displayValue(cellAt(sheet, row, column))).includes('periodo')) {
@@ -69,35 +69,43 @@ const metric = (name, progress, extra = {}) => ({
 });
 
 const extractIndicatorSheet = sheet => {
-  const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: false, defval: '', blankrows: false });
-  const headerIndex = rows.findIndex(row => row.some(value => normalize(value) === 'indicador'));
-  if (headerIndex < 0) return [];
-  const header = rows[headerIndex].map(normalize);
-  const nameColumn = header.indexOf('indicador');
-  const resultColumn = header.findIndex(value => value === 'resultado');
+  const range = getXlsx().utils.decode_range(sheet['!ref'] || 'A1:A1');
+  let headerIndex = -1;
+  let nameColumn = -1;
+  let resultColumn = -1;
+  for (let row = range.s.r; row <= range.e.r && headerIndex < 0; row += 1) {
+    const header = [];
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      header.push(normalize(displayValue(cellAt(sheet, row, column))));
+    }
+    nameColumn = header.indexOf('indicador');
+    if (nameColumn >= 0) {
+      headerIndex = row;
+      resultColumn = header.indexOf('resultado');
+    }
+  }
   if (resultColumn < 0) return [];
 
-  return rows.slice(headerIndex + 1).map(row => {
-    const name = String(row[nameColumn] || '').trim();
-    const progressText = String(row[resultColumn] || '').trim();
+  const metrics = [];
+  for (let row = headerIndex + 1; row <= range.e.r; row += 1) {
+    const name = displayValue(cellAt(sheet, row, nameColumn));
+    const progressText = displayValue(cellAt(sheet, row, resultColumn));
     const match = progressText.match(/(-?\d+(?:[.,]\d+)?)\s*%/);
-    if (!name || !match) return null;
+    if (!name || !match) continue;
     const progress = Number(match[1].replace(',', '.'));
-    return Number.isFinite(progress) ? metric(name, progress, { status: null }) : null;
-  }).filter(Boolean);
+    if (Number.isFinite(progress)) metrics.push(metric(name, progress, { status: null }));
+  }
+  return metrics;
 };
 
 const extractUnitName = workbook => {
   for (const sheetName of workbook.SheetNames) {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], {
-      header: 1,
-      raw: false,
-      defval: '',
-      blankrows: false
-    });
-    for (const row of rows.slice(0, 5)) {
-      for (const value of row) {
-        const title = String(value || '').replace(/\s+/g, ' ').trim();
+    const sheet = workbook.Sheets[sheetName];
+    const range = getXlsx().utils.decode_range(sheet['!ref'] || 'A1:A1');
+    const lastRow = Math.min(range.e.r, range.s.r + 4);
+    for (let row = range.s.r; row <= lastRow; row += 1) {
+      for (let column = range.s.c; column <= range.e.c; column += 1) {
+        const title = displayValue(cellAt(sheet, row, column)).replace(/\s+/g, ' ').trim();
         const match = title.match(/clientes concluidos\s+["“]?(.+?)["”]?$/i);
         if (match) return match[1].replace(/["”]+$/, '').trim();
         if (/^fiscal$/i.test(title)) return title;
@@ -110,7 +118,7 @@ const extractUnitName = workbook => {
 const extractAdvanceSheet = sheet => {
   const metrics = [];
   const overallLabel = 'resultado general';
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+  const range = getXlsx().utils.decode_range(sheet['!ref'] || 'A1:A1');
   for (let row = range.s.r; row <= range.e.r; row += 1) {
     for (let column = range.s.c; column <= range.e.c; column += 1) {
       const label = displayValue(cellAt(sheet, row, column));
@@ -144,7 +152,7 @@ const extractAdvanceSheet = sheet => {
 };
 
 const findResult = sheet => {
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
+  const range = getXlsx().utils.decode_range(sheet['!ref'] || 'A1:A1');
   let result = null;
   const values = {};
   for (let row = range.s.r; row <= range.e.r; row += 1) {
@@ -233,7 +241,7 @@ const extractSpreadsheetInsights = workbook => {
 };
 
 const readSpreadsheetInsights = filePath => {
-  const workbook = XLSX.readFile(filePath, { cellDates: true, cellFormula: true, cellText: true });
+  const workbook = getXlsx().readFile(filePath, { cellDates: true, cellFormula: true, cellText: true });
   return extractSpreadsheetInsights(workbook);
 };
 
