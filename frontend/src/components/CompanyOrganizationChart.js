@@ -4,6 +4,10 @@ import { BriefcaseBusiness, Building2, UserRound, Users } from 'lucide-react';
 
 const normalize = value => String(value || '').trim().toLocaleLowerCase('es');
 
+const getAreaMemberCount = area => (area.directivos || []).length
+  + (area.empleados || []).length
+  + (area.subareas || []).reduce((total, subarea) => total + (subarea.empleados || []).length, 0);
+
 const buildDepartmentFallback = (departments, directors, employees, subareasByDepartment) => {
   const uniqueDepartments = [...new Map(
     (departments || [])
@@ -52,10 +56,14 @@ const buildDepartmentFallback = (departments, directors, employees, subareasByDe
 
 const Person = ({ person }) => (
   <div className="company-org-person">
-    <UserRound size={30} strokeWidth={1.7} aria-hidden="true" />
+    <span className="company-org-person-avatar" aria-hidden="true">
+      <UserRound size={18} strokeWidth={1.8} />
+    </span>
     <div className="company-org-person-info">
       <strong>{person.nombre}</strong>
-      {person.cargo && <span>{person.cargo}</span>}
+      {(person.cargo || person.rol) && (
+        <span>{person.cargo || (person.rol === 'trabajador' ? 'Colaborador' : person.rol)}</span>
+      )}
     </div>
   </div>
 );
@@ -88,9 +96,9 @@ const CompanyOrganizationChart = ({
           <div className="company-org-root">
             {companyName && (
               <div className="company-org-company">
-                <Building2 size={22} aria-hidden="true" />
+                <span className="company-org-company-icon"><Building2 size={21} aria-hidden="true" /></span>
                 <div>
-                  <span>EMPRESA</span>
+                  <span>ORGANIZACIÓN</span>
                   <h3>{companyName}</h3>
                 </div>
               </div>
@@ -106,11 +114,14 @@ const CompanyOrganizationChart = ({
               {organization.map(area => (
               <section key={area.nombre} className="company-org-branch">
                 <div className="company-org-department">
-                  <h3>{area.nombre}</h3>
-                  <Badge bg="secondary">
-                    <Users size={13} className="me-1" />
-                    {(area.directivos || []).length + (area.empleados || []).length
-                      + (area.subareas || []).reduce((total, subarea) => total + (subarea.empleados || []).length, 0)}
+                  <span className="company-org-department-icon"><BriefcaseBusiness size={17} aria-hidden="true" /></span>
+                  <div className="company-org-department-title">
+                    <span>DEPARTAMENTO</span>
+                    <h3>{area.nombre}</h3>
+                  </div>
+                  <Badge bg="secondary" aria-label={`${getAreaMemberCount(area)} integrantes`}>
+                    <Users size={13} aria-hidden="true" />
+                    {getAreaMemberCount(area)}
                   </Badge>
                 </div>
                 <div className="company-org-branch-content">
@@ -121,17 +132,17 @@ const CompanyOrganizationChart = ({
                   ))}
                   {(area.subareas || []).map(subarea => (
                     <section className="company-org-derived-node" key={subarea.nombre}>
-                      <h4>{subarea.nombre}</h4>
+                      <h4><span>{subarea.nombre}</span><Badge bg="light" text="dark">{(subarea.empleados || []).length}</Badge></h4>
                       {subarea.empleados?.length
                         ? <div className="company-org-people">{subarea.empleados.map((person, index) => (
                           <Person key={`${person.nombre}-${index}`} person={person} />
                         ))}</div>
-                        : <p className="small text-muted mb-0">Sin integrantes asignados</p>}
+                        : <p className="company-org-empty mb-0">Sin integrantes asignados</p>}
                     </section>
                   ))}
                   {(area.empleados || []).length > 0 && (
                     <section className="company-org-team-node">
-                      <h4>Equipo del departamento</h4>
+                      <h4><span>Equipo del departamento</span><Badge bg="light" text="dark">{area.empleados.length}</Badge></h4>
                       <div className="company-org-people">{area.empleados.map((person, index) => (
                         <Person key={`${person.nombre}-${index}`} person={person} />
                       ))}</div>
@@ -140,7 +151,7 @@ const CompanyOrganizationChart = ({
                   {!(area.directivos || []).length
                     && !(area.empleados || []).length
                     && !(area.subareas || []).length
-                    && <p className="small text-muted mb-0">Aún no hay integrantes asignados.</p>}
+                    && <p className="company-org-empty mb-0">Aún no hay integrantes asignados.</p>}
                 </div>
               </section>
               ))}
