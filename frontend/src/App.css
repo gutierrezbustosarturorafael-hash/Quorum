@@ -946,25 +946,12 @@ body,
   color: #fff;
 }
 
-.logo-placeholder {
-  width: 38px;
-  height: 38px;
-  background: linear-gradient(135deg, #60a5fa, #2563eb);
-  border-radius: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  font-size: 0.9rem;
-  color: white;
-  box-shadow: 0 7px 20px rgba(37, 99, 235, 0.35);
-}
-
-.brand-text {
-  font-weight: 600;
-  font-size: 1rem;
-  letter-spacing: -0.3px;
-  color: var(--text-primary);
+.brand-logo {
+  display: block;
+  width: 178px;
+  max-width: 40vw;
+  height: auto;
+  border-radius: 4px;
 }
 
 .nav-link-custom {
@@ -2314,6 +2301,10 @@ body,
     padding: 0.55rem 0.75rem !important;
   }
 
+  .app-navbar .navbar-brand .brand-logo {
+    width: 150px;
+  }
+
   .app-navbar .navbar-collapse {
     background: rgba(9, 25, 45, 0.98);
     border-top: 1px solid var(--border-color);
@@ -2735,6 +2726,11 @@ body,
   display: flex;
   flex: 0 0 auto;
   gap: 0.55rem;
+}
+
+.employee-portal-brand .brand-logo {
+  width: 164px;
+  max-width: 38vw;
 }
 
 .employee-portal-product {
@@ -4399,7 +4395,8 @@ body.employee-portal-theme-dark .company-org-tree {
   .main-content {
     padding: 1rem;
   }
-  .brand-text {
-    font-size: 0.85rem;
+
+  .employee-portal-brand .brand-logo {
+    width: 136px;
   }
 }

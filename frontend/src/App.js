@@ -232,8 +232,7 @@ function OrganizerApp() {
       <Navbar bg={interfacePreferences.theme === 'dark' ? 'dark' : 'light'} variant={interfacePreferences.theme === 'dark' ? 'dark' : 'light'} expand="lg" className="app-navbar">
         <Container fluid>
           <Navbar.Brand className="d-flex align-items-center gap-2">
-            <div className="logo-placeholder">Q</div>
-            <span className="brand-text">Quorum</span>
+            <img className="brand-logo" src={`${process.env.PUBLIC_URL}/quorum-logo.png`} alt="Quorum · Minutas, convocatorias, acuerdos y asambleas" />
           </Navbar.Brand>
           <Navbar.Toggle aria-controls="basic-navbar-nav" />
           <Navbar.Collapse id="basic-navbar-nav">
@@ -348,7 +347,7 @@ function OrganizerApp() {
               </Button>
             </div>
             <div className="mt-4">
-              <p className="text-muted mb-2">¿Eres empleado?</p>
+              <p className="text-muted mb-2">¿Eres colaborador?</p>
               <Button as="a" href="/empleados" variant="outline-primary">
                 Haz clic aquí para entrar
               </Button>

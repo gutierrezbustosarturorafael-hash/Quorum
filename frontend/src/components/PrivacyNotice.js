@@ -3,7 +3,7 @@ import React from 'react';
 const PrivacyNotice = ({ audience = 'employee' }) => (
   <details className="terms-details">
     <summary>
-      Leer aviso de privacidad {audience === 'company' ? 'para cuentas organizadoras' : 'para empleados'}
+      Leer aviso de privacidad {audience === 'company' ? 'para cuentas organizadoras' : 'para colaboradores'}
     </summary>
     <div className="terms-content">
       <p>
@@ -17,7 +17,7 @@ const PrivacyNotice = ({ audience = 'employee' }) => (
         <strong>Qué información se registra.</strong>{' '}
         {audience === 'company'
           ? 'La cuenta organizadora puede incluir nombre y datos de contacto, correo, contraseña protegida, información fiscal y de representación, misión, visión, departamentos, estrategias, metas e indicadores.'
-          : 'La cuenta de empleado puede incluir nombre, correo, contraseña protegida, empresa, puesto, departamento, subárea, responsabilidades de jefatura y, si se proporciona, teléfono y personas a cargo. También puede incluir tu misión, visión, valores, metas, estrategias y análisis FODA personales, además de indicadores vinculados a tu departamento y su avance.'}
+          : 'La cuenta de colaborador puede incluir nombre, correo, contraseña protegida, empresa, puesto, departamento, subárea, responsabilidades de jefatura y, si se proporciona, teléfono y personas a cargo. También puede incluir tu misión, visión, valores, metas, estrategias y análisis FODA personales, además de indicadores vinculados a tu departamento y su avance.'}
         En ambos casos, la plataforma también puede guardar reuniones, invitaciones, documentos,
         acuerdos y avances que se agreguen al sistema.
       </p>

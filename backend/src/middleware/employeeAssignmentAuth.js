@@ -17,7 +17,7 @@ const employeeAssignmentAuth = async (req, res, next) => {
     console.error('Employee assignment authorization error:', error.message);
     return res.status(500).json({
       success: false,
-      message: 'No se pudo verificar la asignación de la cuenta de empleado.'
+      message: 'No se pudo verificar la asignación de la cuenta de colaborador.'
     });
   }
 };

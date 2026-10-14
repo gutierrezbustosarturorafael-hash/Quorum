@@ -1452,8 +1452,8 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
               className="mb-2"
             >
               {showEmployeeSelector
-                ? 'Ocultar búsqueda de empleados'
-                : `¿Invitar a un empleado en particular?${data.empleadosInvitados?.length ? ` (${data.empleadosInvitados.length} seleccionado${data.empleadosInvitados.length === 1 ? '' : 's'})` : ''}`}
+                ? 'Ocultar búsqueda de colaboradores'
+                : `¿Invitar a un colaborador en particular?${data.empleadosInvitados?.length ? ` (${data.empleadosInvitados.length} seleccionado${data.empleadosInvitados.length === 1 ? '' : 's'})` : ''}`}
             </Button>
             {showEmployeeSelector && (
               <div className="border rounded p-3">
@@ -1461,7 +1461,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
                   <>
                     <Row className="g-2 mb-3">
                       <Col md={5}>
-                        <Form.Label className="small">Área del empleado</Form.Label>
+                        <Form.Label className="small">Área del colaborador</Form.Label>
                         <Form.Select value={employeeAreaFilter} onChange={event => setEmployeeAreaFilter(event.target.value)}>
                           <option value="">Todas las áreas</option>
                           {(companyData?.departamentos || []).map(area => <option key={area} value={area}>{area}</option>)}
@@ -1473,7 +1473,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
                           type="search"
                           value={employeeNameFilter}
                           onChange={event => setEmployeeNameFilter(event.target.value)}
-                          placeholder="Escribe el nombre del empleado"
+                          placeholder="Escribe el nombre del colaborador"
                         />
                       </Col>
                     </Row>
@@ -1497,7 +1497,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
                           );
                         })}
                       </div>
-                    ) : <div className="small text-muted">No hay empleados que coincidan con la búsqueda.</div>}
+                    ) : <div className="small text-muted">No hay colaboradores que coincidan con la búsqueda.</div>}
                   </>
                 ) : (
                   <div className="small text-muted">Aún no hay personas en el directorio. Agrégalas o comparte el código de invitación desde Configuración.</div>
@@ -1513,7 +1513,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
               ? 'info'
               : 'light'
           } className="small py-2">
-            Si no seleccionas departamentos ni empleados, la reunión se considerará para toda la empresa.
+            Si no seleccionas departamentos ni colaboradores, la reunión se considerará para toda la empresa.
           </Alert>
         )}
 

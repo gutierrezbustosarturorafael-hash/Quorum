@@ -267,7 +267,7 @@ const Settings = ({
       setEmployeeDraft(null);
       setEmployeeMessage(passwordChanged
         ? 'Los datos se actualizaron y la nueva contraseña ya está lista para compartir con la persona.'
-        : 'Perfil de empleado actualizado.');
+        : 'Perfil de colaborador actualizado.');
     } catch (error) {
       setEmployeeMessageIsError(true);
       setEmployeeMessage(error.message || 'No se pudo actualizar el perfil.');
@@ -406,7 +406,7 @@ const Settings = ({
           <div>
             <h5 className="mb-1">Correo para convocatorias</h5>
             <p className="text-muted small mb-0">
-              Destinatarios: los directivos de las áreas elegidas y los empleados invitados. Este será el correo del organizador desde el que se envíen las convocatorias.
+              Destinatarios: los directivos de las áreas elegidas y los colaboradores invitados. Este será el correo del organizador desde el que se envíen las convocatorias.
             </p>
           </div>
         </div>
@@ -563,8 +563,8 @@ const Settings = ({
         <div className="settings-section-heading mb-3">
           <div className="settings-section-icon">A</div>
           <div>
-            <h5 className="mb-1">Acceso de empleados</h5>
-            <p className="text-muted small mb-0">Comparte el código para que cada empleado cree su cuenta e ingrese al sistema con acceso individual.</p>
+            <h5 className="mb-1">Acceso de colaboradores</h5>
+            <p className="text-muted small mb-0">Comparte el código para que cada colaborador cree su cuenta e ingrese al sistema con acceso individual.</p>
           </div>
         </div>
         <Form.Group className="mb-3">
@@ -575,7 +575,7 @@ const Settings = ({
             aria-live="polite"
           />
           <Form.Text className="text-muted d-block mb-3">
-            Compártelo solo con empleados que deban vincular su cuenta a esta empresa.
+            Compártelo solo con colaboradores que deban vincular su cuenta a esta empresa.
           </Form.Text>
           {inviteCodeError && <Alert variant="danger">{inviteCodeError}</Alert>}
           {inviteCodeMessage && <Alert variant={inviteCodeMessage.startsWith('No se pudo') ? 'warning' : 'success'}>{inviteCodeMessage}</Alert>}
@@ -604,10 +604,10 @@ const Settings = ({
                 rel="noreferrer"
                 variant="outline-primary"
               >
-                Abrir portal de empleados
+                Abrir portal de colaboradores
               </Button>
               <span className="small text-muted">
-                Enlace para compartir: {window.location.origin}/empleados/{companyId}
+                Enlace para compartir: <a href={`/empleados/${companyId}`} target="_blank" rel="noreferrer">Portal de colaboradores</a>
               </span>
             </>
           ) : (
@@ -621,7 +621,7 @@ const Settings = ({
         <div className="settings-section-heading mb-3">
           <div className="settings-section-icon">E</div>
           <div>
-            <h5 className="mb-1">Empleados y directivos</h5>
+            <h5 className="mb-1">Colaboradores y directivos</h5>
             <p className="text-muted small mb-0">Las personas agregadas aquí y las que se registran con el código de empresa comparten este directorio. Al agregarlas, se crea una cuenta con una contraseña inicial que podrás compartirles.</p>
           </div>
         </div>
@@ -676,7 +676,7 @@ const Settings = ({
                     subareas: event.target.value === 'directivo' ? current.subareas : []
                   }))}
                 >
-                  <option value="trabajador">Empleado</option>
+                  <option value="trabajador">Colaborador</option>
                   <option value="directivo">Directivo</option>
                 </Form.Select>
               </Form.Group>
@@ -813,17 +813,17 @@ const Settings = ({
                   return (
                     <tr key={employeeId}>
                       <td>{isEditing
-                        ? <Form.Control aria-label="Nombre del empleado" value={employeeDraft.nombre} onChange={event => setEmployeeDraft(current => ({ ...current, nombre: event.target.value }))} />
+                        ? <Form.Control aria-label="Nombre del colaborador" value={employeeDraft.nombre} onChange={event => setEmployeeDraft(current => ({ ...current, nombre: event.target.value }))} />
                         : empleado.nombre || 'Perfil pendiente'}</td>
                       <td>{empleado.email}</td>
                       <td>{empleado.tieneCuenta ? 'Activa' : 'Pendiente de registro'}</td>
                       <td>{isEditing ? (
-                        <Form.Select aria-label="Rol del empleado" value={employeeDraft.rol} onChange={event => setEmployeeDraft(current => ({ ...current, rol: event.target.value }))}>
+                        <Form.Select aria-label="Rol del colaborador" value={employeeDraft.rol} onChange={event => setEmployeeDraft(current => ({ ...current, rol: event.target.value }))}>
                           <option value="">Seleccionar</option><option value="trabajador">Trabajador</option><option value="directivo">Directivo</option>
                         </Form.Select>
                       ) : empleado.rol || 'Pendiente'}</td>
                       <td>{isEditing ? (
-                        <Form.Select aria-label="Área del empleado" value={employeeDraft.area} onChange={event => setEmployeeDraft(current => ({ ...current, area: event.target.value, subarea: '' }))}>
+                        <Form.Select aria-label="Área del colaborador" value={employeeDraft.area} onChange={event => setEmployeeDraft(current => ({ ...current, area: event.target.value, subarea: '' }))}>
                           <option value="">Seleccionar</option>
                           {(companyData.departamentos || [])
                             .filter(area => employeeDraft.rol !== 'directivo'
@@ -834,7 +834,7 @@ const Settings = ({
                       ) : empleado.area || 'Pendiente'}</td>
                       <td>{isEditing
                         ? (
-                          <Form.Select aria-label="Subárea del empleado" value={employeeDraft.subarea} onChange={event => setEmployeeDraft(current => ({ ...current, subarea: event.target.value }))}>
+                          <Form.Select aria-label="Subárea del colaborador" value={employeeDraft.subarea} onChange={event => setEmployeeDraft(current => ({ ...current, subarea: event.target.value }))}>
                             <option value="">Sin subárea</option>
                             {getDepartmentSubareas(companyData.directivos, employeeDraft.area, employeeDraft.subarea).map(subarea => <option key={subarea} value={subarea}>{subarea}</option>)}
                           </Form.Select>
@@ -887,7 +887,7 @@ const Settings = ({
                                   value={(employeeDraft.subareas || []).join('\n')}
                                   onChange={event => setEmployeeDraft(current => ({ ...current, subareas: event.target.value.split('\n').map(item => item.trim()).filter(Boolean) }))}
                                 />
-                                <Form.Text>Una por línea; los empleados del área podrán elegirlas en su perfil.</Form.Text>
+                                <Form.Text>Una por línea; los colaboradores del área podrán elegirlas en su perfil.</Form.Text>
                               </>
                             )}
                             {employeeDraft.rol === 'directivo' && (
@@ -915,7 +915,7 @@ const Settings = ({
                               <Form.Control
                                 type="password"
                                 autoComplete="new-password"
-                                aria-label="Nueva contraseña del empleado"
+                                aria-label="Nueva contraseña del colaborador"
                                 placeholder="Deja vacío para conservarla"
                                 minLength={8}
                                 value={employeeDraft.password}

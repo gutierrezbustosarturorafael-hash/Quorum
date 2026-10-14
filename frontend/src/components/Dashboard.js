@@ -97,7 +97,7 @@ const Dashboard = ({ companyData, setCompanyData, fodaData, setFodaData, reunion
       downloadLink.click();
       downloadLink.remove();
       window.setTimeout(() => URL.revokeObjectURL(downloadUrl), 1000);
-      setCompanyExportMessage('Se descargó el archivo con la información institucional, el FODA y los perfiles e indicadores de cuentas de empleados vinculadas.');
+      setCompanyExportMessage('Se descargó el archivo con la información institucional, el FODA y los perfiles e indicadores de cuentas de colaboradores vinculadas.');
     } catch (error) {
       console.error('Error al exportar los datos de la empresa:', error);
       setCompanyExportMessage(`No se pudo exportar la información. ${error.message || 'Inténtalo de nuevo.'}`);

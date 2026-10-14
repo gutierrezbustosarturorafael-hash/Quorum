@@ -486,7 +486,7 @@ const EmployeePortal = ({ companyId }) => {
       setToken(response.token);
       await loadPortal(response.token);
     } catch (requestError) {
-      setError(requestError.message || 'No se pudo procesar la cuenta de empleado.');
+      setError(requestError.message || 'No se pudo procesar la cuenta de colaborador.');
       if (requestError.code === 'EMPLOYEE_ACCOUNT_EXISTS') setAccessMode('login');
     } finally {
       setLoading(false);
@@ -523,7 +523,7 @@ const EmployeePortal = ({ companyId }) => {
         ? 'La cuenta existente quedó vinculada al área y empresa seleccionadas.'
         : 'La persona quedó en el directorio. Comparte el código de invitación de la empresa para que cree su acceso.');
     } catch (requestError) {
-      setTeamEmployeeError(requestError.message || 'No se pudo agregar al empleado.');
+      setTeamEmployeeError(requestError.message || 'No se pudo agregar al colaborador.');
     } finally {
       setSavingTeamEmployee(false);
     }
@@ -1058,9 +1058,8 @@ const EmployeePortal = ({ companyId }) => {
       <header className="employee-portal-header app-navbar">
         <Container fluid className="employee-portal-header-inner">
           <div className="employee-portal-brand">
-            <div className="logo-placeholder" aria-hidden="true">Q</div>
-            <span className="brand-text">Quorum</span>
-            <span className="employee-portal-product">Portal de empleados</span>
+            <img className="brand-logo" src={`${process.env.PUBLIC_URL}/quorum-logo.png`} alt="Quorum · Minutas, convocatorias, acuerdos y asambleas" />
+            <span className="employee-portal-product">Portal de colaboradores</span>
           </div>
           {portal && !loading && (
             <nav className="employee-portal-nav" aria-label="Secciones de tu portal">
@@ -1119,7 +1118,7 @@ const EmployeePortal = ({ companyId }) => {
             <section className="employee-dashboard-hero dashboard-hero mb-4">
               <RisingLines className="dashboard-rising-lines" />
               <div>
-                <span className="dashboard-eyebrow">{assignmentPending ? 'Acceso pendiente de asignación' : 'Panel de empleado'}</span>
+                <span className="dashboard-eyebrow">{assignmentPending ? 'Acceso pendiente de asignación' : 'Panel de colaborador'}</span>
                 <h1 className="dashboard-title">
                   Hola, {portal.profile.nombre?.trim().split(/\s+/)[0] || 'bienvenido'}
                 </h1>
@@ -1203,7 +1202,7 @@ const EmployeePortal = ({ companyId }) => {
                 <div className="employee-profile-tags">
                   <span><BriefcaseBusiness size={14} />{portal.profile.area || 'Dirección de empresa'}</span>
                   {portal.profile.subarea && <span>{portal.profile.subarea}</span>}
-                  <span><UserRound size={14} />{portal.profile.rol === 'directivo' ? 'Directivo' : 'Empleado'}</span>
+                  <span><UserRound size={14} />{portal.profile.rol === 'directivo' ? 'Directivo' : 'Colaborador'}</span>
                 </div>
               </div>
               <div className="employee-profile-email">{portal.profile.email}</div>
@@ -1328,7 +1327,7 @@ const EmployeePortal = ({ companyId }) => {
               <div className="col-lg-5 employee-login-intro">
                 <div className="employee-login-intro-content">
                   <div className="employee-login-icon"><Building2 size={22} /></div>
-                  <span className="employee-profile-caption">QUORUM · EMPLEADOS</span>
+                  <span className="employee-profile-caption">QUORUM · COLABORADORES</span>
                   <h2>Tu trabajo, tus reuniones, en un solo lugar.</h2>
                   <p>Accede a la información que tu empresa comparte contigo y mantente al día con tus reuniones.</p>
                   <div className="employee-login-benefit"><CalendarDays size={17} /><span>Consulta tus próximas reuniones</span></div>
@@ -1339,15 +1338,15 @@ const EmployeePortal = ({ companyId }) => {
               <div className="col-lg-7">
                 <Card className="employee-auth-card h-100">
               <Card.Body className="p-4 p-xl-5">
-                <h2 className="h5">{accessMode === 'register' ? 'Crear cuenta de empleado' : 'Iniciar sesión'}</h2>
-                <p className="text-muted small">Cada empleado ingresa con su propia cuenta para consultar sus reuniones.</p>
-                {accessMode === 'login' && <Alert variant="info">Ingresa con el correo y la contraseña de tu cuenta de empleado.</Alert>}
+                <h2 className="h5">{accessMode === 'register' ? 'Crear cuenta de colaborador' : 'Iniciar sesión'}</h2>
+                <p className="text-muted small">Cada colaborador ingresa con su propia cuenta para consultar sus reuniones.</p>
+                {accessMode === 'login' && <Alert variant="info">Ingresa con el correo y la contraseña de tu cuenta de colaborador.</Alert>}
                 {accessMode === 'register' && (
                   <Alert variant="info">
                     Busca la empresa con el código, selecciona tu departamento y, si aparece, el área derivada donde trabajas. Un directivo confirmará tu asignación antes de habilitar la información interna. Si ya tienes una cuenta organizadora de esta empresa, usa el mismo correo y contraseña.
                   </Alert>
                 )}
-                <div className="employee-auth-tabs mb-4" role="group" aria-label="Acceso de empleados">
+                <div className="employee-auth-tabs mb-4" role="group" aria-label="Acceso de colaboradores">
                   <button type="button" aria-pressed={accessMode === 'login'} className={accessMode === 'login' ? 'is-active' : ''} onClick={() => setAccessMode('login')}>Iniciar sesión</button>
                   <button type="button" aria-pressed={accessMode === 'register'} className={accessMode === 'register' ? 'is-active' : ''} onClick={() => setAccessMode('register')}>Crear cuenta</button>
                 </div>
@@ -1486,7 +1485,7 @@ const EmployeePortal = ({ companyId }) => {
                   <div className="employee-section-icon"><Users size={19} /></div>
                   <div>
                     <span className="employee-profile-caption">GESTIÓN DE ÁREAS</span>
-                    <h2>Empleados de tus áreas</h2>
+                    <h2>Colaboradores de tus áreas</h2>
                     <p className="mb-0">Agrega una persona existente o regístrala en una de las áreas principales que tienes asignadas.</p>
                   </div>
                 </div>
@@ -1516,7 +1515,7 @@ const EmployeePortal = ({ companyId }) => {
                     </Form.Select>
                   </Form.Group>
                   <div className="col-md-1">
-                    <Button type="submit" className="w-100" disabled={savingTeamEmployee} aria-label="Agregar empleado">
+                    <Button type="submit" className="w-100" disabled={savingTeamEmployee} aria-label="Agregar colaborador">
                       {savingTeamEmployee ? <Spinner size="sm" /> : <Plus size={17} />}
                     </Button>
                   </div>
@@ -1567,7 +1566,7 @@ const EmployeePortal = ({ companyId }) => {
                     ))}
                   </div>
                 ) : (
-                  <p className="small text-muted mb-0">No hay empleados en las áreas asignadas.</p>
+                  <p className="small text-muted mb-0">No hay colaboradores en las áreas asignadas.</p>
                 )}
               </Card.Body>
             </Card>

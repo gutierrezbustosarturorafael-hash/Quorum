@@ -617,7 +617,7 @@ class EmpresaModel {
     if (!manager || !company
       || manager.rol !== 'directivo'
       || (!manager.esJefeEmpresa && !manager.esJefeDepartamento && !manager.dirigeSubareas)) {
-      const error = new Error('No tienes permisos para administrar empleados.');
+      const error = new Error('No tienes permisos para administrar colaboradores.');
       error.statusCode = 403;
       throw error;
     }
@@ -670,7 +670,7 @@ class EmpresaModel {
     if (employee?.asignacionConfirmada !== false
       && employee?.area
       && !managedAreas.includes(normalizeArea(employee.area))) {
-      const error = new Error('Ese empleado ya está asignado a un área que no tienes a cargo.');
+      const error = new Error('Ese colaborador ya está asignado a un área que no tienes a cargo.');
       error.statusCode = 403;
       throw error;
     }
@@ -753,11 +753,11 @@ class EmpresaModel {
         nombre: name,
         empleados: areaEmployees
           .filter(employee => normalizeArea(employee.subarea) === normalizeArea(name))
-          .map(employee => ({ nombre: employee.nombre || 'Empleado', rol: employee.rol || 'trabajador' }))
+          .map(employee => ({ nombre: employee.nombre || 'Colaborador', rol: employee.rol || 'trabajador' }))
       }));
       const employeesWithoutSubarea = areaEmployees
         .filter(employee => !employee.subarea)
-        .map(employee => ({ nombre: employee.nombre || 'Empleado', rol: employee.rol || 'trabajador' }));
+        .map(employee => ({ nombre: employee.nombre || 'Colaborador', rol: employee.rol || 'trabajador' }));
       return {
         nombre: area,
         directivos: directors.map(director => ({ nombre: director.nombre || 'Directivo', cargo: director.cargo })),
@@ -810,7 +810,7 @@ class EmpresaModel {
     if (!Array.isArray(employeeIds) || employeeIds.length === 0) return [];
     const uniqueIds = [...new Set(employeeIds.map(id => String(id)))];
     if (uniqueIds.some(id => !mongoose.isValidObjectId(id))) {
-      const error = new Error('La lista de empleados invitados contiene identificadores no válidos.');
+      const error = new Error('La lista de colaboradores invitados contiene identificadores no válidos.');
       error.statusCode = 400;
       throw error;
     }
@@ -819,7 +819,7 @@ class EmpresaModel {
       empresaId
     }).select('_id');
     if (employees.length !== uniqueIds.length) {
-      const error = new Error('Solo puedes invitar cuentas de empleado vinculadas a esta empresa.');
+      const error = new Error('Solo puedes invitar colaboradores con cuenta vinculada a esta empresa.');
       error.statusCode = 400;
       throw error;
     }
@@ -1099,7 +1099,7 @@ class EmpresaModel {
         throw error;
       }
       if (existingEmployee.passwordHash) {
-        const error = new Error('Ya existe una cuenta de empleado con este correo. Inicia sesión para continuar.');
+        const error = new Error('Ya existe una cuenta de colaborador con este correo. Inicia sesión para continuar.');
         error.statusCode = 409;
         error.code = 'EMPLOYEE_ACCOUNT_EXISTS';
         throw error;
@@ -1132,7 +1132,7 @@ class EmpresaModel {
     }
     const existingCompanyAccount = await Usuario.findOne({ email: String(email).trim().toLowerCase() }).select('empresaId');
     if (existingCompanyAccount && String(existingCompanyAccount.empresaId) !== String(empresa._id)) {
-      const error = new Error('Este correo ya está asociado a una cuenta organizadora de otra empresa. Usa un correo distinto para el perfil de empleado.');
+      const error = new Error('Este correo ya está asociado a una cuenta organizadora de otra empresa. Usa un correo distinto para el perfil de colaborador.');
       error.statusCode = 409;
       throw error;
     }
@@ -1211,7 +1211,7 @@ class EmpresaModel {
   static async completeEmpleadoProfile(empleadoId, profile) {
     const empleado = await Empleado.findById(empleadoId);
     if (!empleado) {
-      const error = new Error('No se encontró el perfil del empleado.');
+      const error = new Error('No se encontró el perfil del colaborador.');
       error.statusCode = 404;
       throw error;
     }
@@ -1298,7 +1298,7 @@ class EmpresaModel {
       ? (Array.isArray(empleado.subareas) ? empleado.subareas : []).map(item => String(item).trim()).filter(Boolean)
       : [];
     if (rol === 'directivo' && dirigeSubareas && !managerSubareas.length) {
-      const error = new Error('Escribe al menos una subárea para que los empleados puedan seleccionarla.');
+      const error = new Error('Escribe al menos una subárea para que los colaboradores puedan seleccionarla.');
       error.statusCode = 400;
       throw error;
     }
@@ -1335,7 +1335,7 @@ class EmpresaModel {
   static async updateEmployeePersonalStrategy(empresaId, empleadoId, data) {
     const empleado = await Empleado.findOne({ _id: empleadoId, empresaId });
     if (!empleado) {
-      const error = new Error('No se encontró el perfil del empleado.');
+      const error = new Error('No se encontró el perfil del colaborador.');
       error.statusCode = 404;
       throw error;
     }
@@ -1466,7 +1466,7 @@ class EmpresaModel {
   static async updateEmpleadoProfile(empresaId, empleadoId, profile) {
     const empleado = await Empleado.findOne({ _id: empleadoId, empresaId });
     if (!empleado) {
-      const error = new Error('No se encontró una cuenta de empleado de esta empresa.');
+      const error = new Error('No se encontró una cuenta de colaborador de esta empresa.');
       error.statusCode = 404;
       throw error;
     }
@@ -1510,7 +1510,7 @@ class EmpresaModel {
       ? (Array.isArray(profile.subareas) ? profile.subareas : []).map(item => String(item).trim()).filter(Boolean)
       : [];
     if (rol === 'directivo' && profile.dirigeSubareas && !managerSubareas.length) {
-      const error = new Error('Escribe al menos una subárea para que los empleados puedan seleccionarla.');
+      const error = new Error('Escribe al menos una subárea para que los colaboradores puedan seleccionarla.');
       error.statusCode = 400;
       throw error;
     }

@@ -274,7 +274,7 @@ const formatCompanyExport = ({ empresa, empleados }) => {
     'Amenazas:',
     formatExportList(empresa.foda?.amenazas),
     '',
-    `PERFILES E INDICADORES DE EMPLEADOS CON CUENTA (${empleados.length})`
+    `PERFILES E INDICADORES DE COLABORADORES CON CUENTA (${empleados.length})`
   ];
 
   empleados.forEach((empleado, index) => {
@@ -586,13 +586,13 @@ class EmpresaController {
         return res.status(409).json({
           success: false,
           code: 'EMPLOYEE_ACCOUNT_EXISTS',
-          message: 'Ya existe una cuenta de empleado con este correo. Inicia sesión para completar los datos pendientes.'
+          message: 'Ya existe una cuenta de colaborador con este correo. Inicia sesión para completar los datos pendientes.'
         });
       }
       res.status(error.statusCode || 500).json({
         success: false,
         code: error.code,
-        message: error.statusCode ? error.message : 'No se pudo crear la cuenta de empleado.'
+        message: error.statusCode ? error.message : 'No se pudo crear la cuenta de colaborador.'
       });
     }
   }
@@ -630,14 +630,14 @@ class EmpresaController {
       });
     } catch (error) {
       console.error('Employee account login error:', error.message);
-      res.status(500).json({ success: false, message: 'No se pudo iniciar sesión como empleado.' });
+      res.status(500).json({ success: false, message: 'No se pudo iniciar sesión como colaborador.' });
     }
   }
 
   static async getEmployeePortal(req, res) {
     try {
       if (!req.user.employeeId) {
-        return res.status(403).json({ success: false, message: 'Inicia sesión con tu cuenta individual de empleado.' });
+        return res.status(403).json({ success: false, message: 'Inicia sesión con tu cuenta individual de colaborador.' });
       }
       const [company, profile] = await Promise.all([
         EmpresaModel.getEmployeePortalData(req.user.empresaId),
@@ -680,7 +680,7 @@ class EmpresaController {
       });
     } catch (error) {
       console.error('Get employee portal error:', error.message);
-      res.status(500).json({ success: false, message: 'No se pudo cargar tu espacio de empleado. Inténtalo de nuevo.' });
+      res.status(500).json({ success: false, message: 'No se pudo cargar tu espacio de colaborador. Inténtalo de nuevo.' });
     }
   }
 
@@ -690,7 +690,7 @@ class EmpresaController {
       validateEmployeePersonalMeeting(data);
       const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
-        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de empleado. Inicia sesión de nuevo.' });
+        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
       const meeting = await EmpresaModel.createEmployeePersonalMeeting(
         req.user.empresaId,
@@ -754,7 +754,7 @@ class EmpresaController {
     try {
       const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
-        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de empleado. Inicia sesión de nuevo.' });
+        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
       const data = await EmpresaModel.getEmployeePersonalObjectives(req.user.empresaId, req.user.employeeId);
       res.json({ success: true, data });
@@ -787,7 +787,7 @@ class EmpresaController {
       validateEmployeePersonalObjective(req.body || {});
       const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
-        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de empleado. Inicia sesión de nuevo.' });
+        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
       if (!String(profile.area || '').trim()) {
         return res.status(400).json({ success: false, message: 'Completa primero tu área en el perfil para vincular el indicador.' });
@@ -854,7 +854,7 @@ class EmpresaController {
   static async getManagedEmployeeObjectives(req, res) {
     try {
       if (!mongoose.isValidObjectId(req.params.employeeId)) {
-        return res.status(400).json({ success: false, message: 'El identificador del empleado no es válido.' });
+        return res.status(400).json({ success: false, message: 'El identificador del colaborador no es válido.' });
       }
       const profile = await EmpresaModel.getEmpleadoProfile(req.params.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
@@ -864,14 +864,14 @@ class EmpresaController {
       res.json({ success: true, data, area: profile.area });
     } catch (error) {
       console.error('Get managed employee objectives error:', error.message);
-      res.status(500).json({ success: false, message: 'No se pudo cargar el plan personal del empleado.' });
+      res.status(500).json({ success: false, message: 'No se pudo cargar el plan personal del colaborador.' });
     }
   }
 
   static async createManagedEmployeeObjective(req, res) {
     try {
       if (!mongoose.isValidObjectId(req.params.employeeId)) {
-        return res.status(400).json({ success: false, message: 'El identificador del empleado no es válido.' });
+        return res.status(400).json({ success: false, message: 'El identificador del colaborador no es válido.' });
       }
       validateEmployeePersonalObjective(req.body || {});
       const profile = await EmpresaModel.getEmpleadoProfile(req.params.employeeId);
@@ -879,7 +879,7 @@ class EmpresaController {
         return res.status(404).json({ success: false, message: 'No se encontró a esa persona en el directorio de la empresa.' });
       }
       if (!String(profile.area || '').trim()) {
-        return res.status(400).json({ success: false, message: 'Asigna un área al empleado antes de agregar indicadores.' });
+        return res.status(400).json({ success: false, message: 'Asigna un área al colaborador antes de agregar indicadores.' });
       }
       const objective = await EmpresaModel.createEmployeePersonalObjective(
         req.user.empresaId,
@@ -893,7 +893,7 @@ class EmpresaController {
       console.error('Create managed employee objective error:', error.message);
       res.status(error.statusCode || 500).json({
         success: false,
-        message: error.statusCode ? error.message : 'No se pudo asignar el indicador al empleado.'
+        message: error.statusCode ? error.message : 'No se pudo asignar el indicador al colaborador.'
       });
     }
   }
@@ -901,7 +901,7 @@ class EmpresaController {
   static async updateManagedEmployeeObjective(req, res) {
     try {
       if (!mongoose.isValidObjectId(req.params.employeeId) || !mongoose.isValidObjectId(req.params.objectiveId)) {
-        return res.status(400).json({ success: false, message: 'El identificador del empleado o del indicador no es válido.' });
+        return res.status(400).json({ success: false, message: 'El identificador del colaborador o del indicador no es válido.' });
       }
       validateEmployeePersonalObjective(req.body || {}, true);
       const objective = await EmpresaModel.updateEmployeePersonalObjective(
@@ -923,14 +923,14 @@ class EmpresaController {
   static async deleteManagedEmployeeObjective(req, res) {
     try {
       if (!mongoose.isValidObjectId(req.params.employeeId) || !mongoose.isValidObjectId(req.params.objectiveId)) {
-        return res.status(400).json({ success: false, message: 'El identificador del empleado o del indicador no es válido.' });
+        return res.status(400).json({ success: false, message: 'El identificador del colaborador o del indicador no es válido.' });
       }
       await EmpresaModel.deleteEmployeePersonalObjective(
         req.user.empresaId,
         req.params.employeeId,
         req.params.objectiveId
       );
-      res.json({ success: true, message: 'El indicador se quitó del plan personal del empleado.' });
+      res.json({ success: true, message: 'El indicador se quitó del plan personal del colaborador.' });
     } catch (error) {
       console.error('Delete managed employee objective error:', error.message);
       res.status(error.statusCode || 500).json({
@@ -943,7 +943,7 @@ class EmpresaController {
   static async completeEmployeeProfile(req, res) {
     try {
       if (!req.user.employeeId) {
-        return res.status(403).json({ success: false, message: 'Este acceso no tiene una cuenta de empleado para completar.' });
+        return res.status(403).json({ success: false, message: 'Este acceso no tiene una cuenta de colaborador para completar.' });
       }
       const profile = await EmpresaModel.completeEmpleadoProfile(req.user.employeeId, req.body || {});
       res.json({ success: true, data: profile });
@@ -951,7 +951,7 @@ class EmpresaController {
       console.error('Employee profile completion error:', error.message);
       res.status(error.statusCode || 500).json({
         success: false,
-        message: error.statusCode ? error.message : 'No se pudieron guardar los datos del empleado.'
+        message: error.statusCode ? error.message : 'No se pudieron guardar los datos del colaborador.'
       });
     }
   }
@@ -968,7 +968,7 @@ class EmpresaController {
       console.error('Add employee from employee portal error:', error.message);
       res.status(error.statusCode || 500).json({
         success: false,
-        message: error.statusCode ? error.message : 'No se pudo agregar o asignar al empleado.'
+        message: error.statusCode ? error.message : 'No se pudo agregar o asignar al colaborador.'
       });
     }
   }
@@ -976,7 +976,7 @@ class EmpresaController {
   static async updateEmployeeProfile(req, res) {
     try {
       if (!mongoose.isValidObjectId(req.params.employeeId)) {
-        return res.status(400).json({ success: false, message: 'El identificador del empleado no es válido.' });
+        return res.status(400).json({ success: false, message: 'El identificador del colaborador no es válido.' });
       }
       const profileData = { ...(req.body || {}) };
       if (profileData.password) {
@@ -999,7 +999,7 @@ class EmpresaController {
       console.error('Employee profile update error:', error.message);
       res.status(error.statusCode || 500).json({
         success: false,
-        message: error.statusCode ? error.message : 'No se pudo actualizar el perfil del empleado.'
+        message: error.statusCode ? error.message : 'No se pudo actualizar el perfil del colaborador.'
       });
     }
   }
@@ -1286,7 +1286,7 @@ class EmpresaController {
       }
       const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
-        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de empleado. Inicia sesión de nuevo.' });
+        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
       const reunion = await EmpresaModel.getEmployeeMeetingForSpreadsheetUpload(
         req.user.empresaId,
@@ -1347,7 +1347,7 @@ class EmpresaController {
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({
           success: false,
-          message: 'No se encontró tu cuenta de empleado. Inicia sesión de nuevo.'
+          message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.'
         });
       }
       const documento = await EmpresaModel.deleteEmployeeMeetingSpreadsheet(
@@ -1383,7 +1383,7 @@ class EmpresaController {
       }
       const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
-        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de empleado. Inicia sesión de nuevo.' });
+        return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
       const documento = await EmpresaModel.getEmployeeMeetingSpreadsheetForInsights(
         req.user.empresaId,

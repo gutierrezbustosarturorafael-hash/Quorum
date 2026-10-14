@@ -39,12 +39,12 @@ const buildDepartmentFallback = (departments, directors, employees, subareasByDe
       })),
       empleados: areaEmployees
         .filter(employee => !employee.subarea)
-        .map(employee => ({ nombre: employee.nombre || 'Empleado', rol: employee.rol || 'trabajador' })),
+        .map(employee => ({ nombre: employee.nombre || 'Colaborador', rol: employee.rol || 'trabajador' })),
       subareas: subareaNames.map(subarea => ({
         nombre: subarea,
         empleados: areaEmployees
           .filter(employee => normalize(employee.subarea) === normalize(subarea))
-          .map(employee => ({ nombre: employee.nombre || 'Empleado', rol: employee.rol || 'trabajador' }))
+          .map(employee => ({ nombre: employee.nombre || 'Colaborador', rol: employee.rol || 'trabajador' }))
       }))
     };
   });

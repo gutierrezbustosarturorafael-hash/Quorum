@@ -1,5 +1,8 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Quorum">
-  <rect width="64" height="64" rx="14" fill="#0d1117"/>
-  <circle cx="30" cy="29" r="14" fill="none" stroke="#60a5fa" stroke-width="7"/>
-  <path d="M39 39l10 10" stroke="#60a5fa" stroke-width="7" stroke-linecap="round"/>
+  <circle cx="32" cy="32" r="29" fill="#fff" stroke="#172b50" stroke-width="4"/>
+  <circle cx="32" cy="32" r="24" fill="none" stroke="#172b50" stroke-width="2"/>
+  <path d="M19 16h26M21 17c0 7 4 10 11 15-7 5-11 8-11 15h22c0-7-4-10-11-15 7-5 11-8 11-15" fill="none" stroke="#172b50" stroke-linecap="round" stroke-linejoin="round" stroke-width="4"/>
+  <path d="M24 21c1 4 4 7 8 10 4-3 7-6 8-10z" fill="#f47b32"/>
+  <path d="M25 43h14c-2-3-4-5-7-7-3 2-5 4-7 7z" fill="#f47b32"/>
+  <circle cx="32" cy="34" r="3" fill="#172b50"/>
 </svg>

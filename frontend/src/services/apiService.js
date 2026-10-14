@@ -180,7 +180,7 @@ class ApiService {
       });
     } catch (error) {
       if (error.code === 'API_ROUTE_NOT_FOUND') {
-        error.message = 'El servidor aún no tiene disponible la asignación de empleados desde el portal. Actualiza el backend de Quorum e inténtalo de nuevo.';
+        error.message = 'El servidor aún no tiene disponible la asignación de colaboradores desde el portal. Actualiza el backend de Quorum e inténtalo de nuevo.';
       }
       throw error;
     }

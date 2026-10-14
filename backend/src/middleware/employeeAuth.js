@@ -3,7 +3,7 @@ const jwt = require('jsonwebtoken');
 const employeeAuth = (req, res, next) => {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
-    return res.status(401).json({ success: false, message: 'Inicia sesión con tu cuenta individual de empleado.' });
+    return res.status(401).json({ success: false, message: 'Inicia sesión con tu cuenta individual de colaborador.' });
   }
 
   try {
@@ -12,9 +12,9 @@ const employeeAuth = (req, res, next) => {
       req.user = decoded;
       return next();
     }
-    return res.status(403).json({ success: false, message: 'Inicia sesión con tu cuenta individual de empleado.' });
+    return res.status(403).json({ success: false, message: 'Inicia sesión con tu cuenta individual de colaborador.' });
   } catch (error) {
-    return res.status(401).json({ success: false, message: 'La sesión de empleado venció. Inicia sesión nuevamente.' });
+    return res.status(401).json({ success: false, message: 'La sesión de colaborador venció. Inicia sesión nuevamente.' });
   }
 };
 
