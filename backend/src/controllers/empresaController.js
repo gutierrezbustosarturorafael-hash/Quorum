@@ -565,7 +565,8 @@ class EmpresaController {
         email,
         passwordHash,
         area,
-        subarea
+        subarea,
+        verifiedCompanyAccountId: existingCompanyAccount?.empresaId
       });
       const token = jwt.sign(
         { employeeId: employee.id, empresaId: employee.empresaId, email: String(email).trim().toLowerCase(), type: 'employee-account' },

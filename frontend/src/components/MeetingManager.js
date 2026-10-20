@@ -2241,12 +2241,11 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
             </Row>
           </div>
         </Modal.Body>
-        <Modal.Footer className="d-flex justify-content-between">
-          <Button variant="success" onClick={generarPdf}>Descargar PDF</Button>
-          <div>
-            <Button variant="secondary" className="me-2" onClick={() => { setModals({ ...modals, minute: false }); setSelected(null); }}>
-              Cancelar
-            </Button>
+        <Modal.Footer className="d-flex flex-wrap justify-content-end align-items-center gap-2">
+          <Button variant="outline-success" onClick={generarPdf}>Descargar PDF</Button>
+          <Button variant="secondary" onClick={() => { setModals({ ...modals, minute: false }); setSelected(null); }}>
+            Cancelar
+          </Button>
             <SlideCommit
               label="Desliza para guardar minuta"
               doneLabel="Minuta guardada"
@@ -2258,7 +2257,6 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
               dangerColor="#bd3544"
               disabled={loading}
             />
-          </div>
         </Modal.Footer>
       </Modal>
 

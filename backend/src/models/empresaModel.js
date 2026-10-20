@@ -1044,7 +1044,7 @@ class EmpresaModel {
     };
   }
 
-  static async registerEmpleado({ companyCode, nombre, email, passwordHash, area, subarea }) {
+  static async registerEmpleado({ companyCode, nombre, email, passwordHash, area, subarea, verifiedCompanyAccountId }) {
     const empresa = await Empresa.findOne({ codigoInvitacion: String(companyCode || '').trim().toUpperCase() })
       .select('_id departamentos directivos');
     if (!empresa) {
@@ -1102,6 +1102,12 @@ class EmpresaModel {
         const error = new Error('Ya existe una cuenta de colaborador con este correo. Inicia sesión para continuar.');
         error.statusCode = 409;
         error.code = 'EMPLOYEE_ACCOUNT_EXISTS';
+        throw error;
+      }
+      if (String(verifiedCompanyAccountId || '') !== String(empresa._id)) {
+        const error = new Error('Este perfil ya está registrado por la empresa. Pide al organizador que te habilite el acceso antes de iniciar sesión.');
+        error.statusCode = 403;
+        error.code = 'EMPLOYEE_ACCOUNT_REQUIRES_ORGANIZER';
         throw error;
       }
       existingEmployee.passwordHash = passwordHash;
