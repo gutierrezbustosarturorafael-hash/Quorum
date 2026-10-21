@@ -2138,7 +2138,7 @@ class EmpresaModel {
         convocatoriaEnviada: false,
         status: estadoNorm, estado: estadoNorm, resultadoExitoso: Boolean(data.resultadoExitoso),
         cronograma: normalizeCronograma(data.cronograma || []),
-        documentos: Array.isArray(data.documentos) ? data.documentos : [],
+        documentos: [],
         indicadoresVinculados: Array.isArray(data.indicadoresVinculados) ? data.indicadoresVinculados : [],
         objetivosDefinidos: Array.isArray(data.objetivosDefinidos) ? data.objetivosDefinidos : [], seguimientos: []
       });
@@ -2162,7 +2162,7 @@ class EmpresaModel {
         }
 
       }
-      const campos = ['status', 'estado', 'conclusion', 'minuta', 'acuerdos', 'resultadoExitoso', 'tipoReunion', 'convocatoriaEnviada', 'fechaConvocatoria', 'cronograma', 'documentos', 'indicadoresVinculados', 'objetivosDefinidos'];
+      const campos = ['status', 'estado', 'conclusion', 'minuta', 'acuerdos', 'resultadoExitoso', 'tipoReunion', 'convocatoriaEnviada', 'fechaConvocatoria', 'cronograma', 'indicadoresVinculados', 'objetivosDefinidos'];
       campos.forEach(campo => {
         if (data[campo] !== undefined) reunion[campo] = campo === 'status' || campo === 'estado' ? normalizeMeetingStatus(data[campo], reunion[campo] || 'pendiente') : campo === 'cronograma' ? normalizeCronograma(data[campo]) : campo === 'fechaConvocatoria' ? new Date(data[campo]) : data[campo];
       });

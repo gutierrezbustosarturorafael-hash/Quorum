@@ -9,16 +9,11 @@ const mongoose = require('mongoose');
 const { validateEncryptionKey } = require('../utils/smtpCredentials');
 const { extractSpreadsheetInsights, readSpreadsheetInsights } = require('../utils/spreadsheetInsights');
 const { moveUploadedFile } = require('../utils/uploadFiles');
+const resolveStoredMeetingDocumentPath = require('../utils/meetingDocumentPath');
 
 const getStoredMeetingDocumentPath = documento => {
   const uploadsRoot = path.resolve(__dirname, '..', '..', 'uploads', 'reuniones');
-  const filePath = path.resolve(__dirname, '..', '..', String(documento.url || '').replace(/^\/+/, ''));
-  if (!filePath.startsWith(`${uploadsRoot}${path.sep}`)) {
-    const error = new Error('La ruta del documento no es válida.');
-    error.statusCode = 400;
-    throw error;
-  }
-  return filePath;
+  return resolveStoredMeetingDocumentPath(documento.url, uploadsRoot);
 };
 
 const normalizeArea = value => String(value || '').trim().toLowerCase()
@@ -1528,14 +1523,23 @@ class EmpresaController {
 
   static async deleteReunionDocumento(req, res) {
     try {
-      const deleted = await EmpresaModel.deleteReunionDocumento(
+      const existingDocument = await EmpresaModel.getReunionDocumento(
         req.user.empresaId,
         req.params.id,
         req.params.documentoId
       );
-      if (deleted.url) {
-        const filePath = path.join(__dirname, '..', '..', deleted.url.replace(/^\/+/, ''));
-        if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      const filePath = existingDocument.url ? getStoredMeetingDocumentPath(existingDocument) : '';
+      await EmpresaModel.deleteReunionDocumento(
+        req.user.empresaId,
+        req.params.id,
+        req.params.documentoId
+      );
+      if (filePath) {
+        try {
+          await fs.promises.unlink(filePath);
+        } catch (error) {
+          if (error.code !== 'ENOENT') throw error;
+        }
       }
       res.json({ success: true, message: 'Documento eliminado correctamente.' });
     } catch (error) {
@@ -1624,6 +1628,9 @@ class EmpresaController {
         req.params.id,
         req.params.documentoId
       );
+      const oldFilePath = existingDocument.url
+        ? getStoredMeetingDocumentPath(existingDocument)
+        : '';
       if (existingDocument.esPresentacionPrincipal && extension !== '.pdf') {
         return res.status(400).json({
           success: false,
@@ -1651,9 +1658,8 @@ class EmpresaController {
         }
       );
       savedFilePath = '';
-      if (result.oldUrl) {
-        const oldPath = path.join(__dirname, '..', '..', result.oldUrl.replace(/^\/+/, ''));
-        await fs.promises.unlink(oldPath).catch(error => {
+      if (oldFilePath) {
+        await fs.promises.unlink(oldFilePath).catch(error => {
           if (error.code !== 'ENOENT') {
             console.error('Could not remove replaced meeting document:', error.message);
           }

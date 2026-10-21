@@ -411,11 +411,16 @@ const Settings = ({
           </div>
         </div>
         <Alert variant="info">
-          <strong>Antes de empezar:</strong> selecciona tu servicio de correo, escribe la dirección que usarás para enviar las convocatorias y su contraseña especial de aplicación. No uses la contraseña normal.
-          <ul className="mb-0 mt-2">
-            <li>Gmail: activa la verificación en dos pasos y crea una contraseña de aplicación en <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">tu cuenta de Google</a>.</li>
-            <li>Outlook: usa la contraseña especial de aplicación de tu cuenta.</li>
-            <li>Si no es posible guardar el correo, inténtalo más tarde o pide ayuda al responsable de Quorum.</li>
+          <strong>Antes de empezar</strong>
+          <ol className="mt-2 mb-2">
+            <li>Elige Gmail u Outlook / Microsoft en el campo <strong>Proveedor</strong>.</li>
+            <li>Escribe la dirección completa de la cuenta desde la que se enviarán las convocatorias.</li>
+            <li>Crea una contraseña especial de aplicación en la configuración de esa cuenta y pégala en el campo correspondiente. <strong>No uses la contraseña normal del correo.</strong></li>
+          </ol>
+          <ul className="mb-0">
+            <li>Para <strong>Gmail</strong>, activa primero la verificación en dos pasos y luego crea la contraseña en <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noopener noreferrer">Contraseñas de aplicación de Google</a>.</li>
+            <li>Para <strong>Outlook / Microsoft</strong>, revisa las opciones de seguridad de tu <a href="https://account.microsoft.com/security" target="_blank" rel="noopener noreferrer">cuenta Microsoft</a>. Si tienes activada la verificación en dos pasos, busca <strong>Opciones de seguridad avanzadas</strong> y crea una contraseña de aplicación. Esta opción puede no estar disponible en cuentas de trabajo o escuela administradas; en ese caso, consulta con el administrador de Microsoft 365.</li>
+            <li>Al guardar, Quorum comprobará la conexión. Si no se puede guardar, verifica el proveedor, el correo y la contraseña de aplicación o pide ayuda al responsable de Quorum. <strong>No compartas tu contraseña con nadie.</strong></li>
           </ul>
         </Alert>
         {companyData?.smtpConvocatorias?.configured && (
