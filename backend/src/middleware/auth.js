@@ -9,7 +9,9 @@ const authMiddleware = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    if (decoded.type) {
+    if (decoded.type || decoded.role === 'administrator'
+      || typeof decoded.empresaId !== 'string'
+      || !/^[a-f\d]{24}$/i.test(decoded.empresaId)) {
       return res.status(403).json({ success: false, message: 'Este token no tiene permisos de organización.' });
     }
     req.user = decoded;

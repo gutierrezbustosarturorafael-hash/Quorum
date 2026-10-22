@@ -1470,7 +1470,22 @@ class EmpresaModel {
   }
 
   static async updateEmpleadoProfile(empresaId, empleadoId, profile) {
-    const empleado = await Empleado.findOne({ _id: empleadoId, empresaId });
+    const companyId = String(empresaId || '');
+    const employeeId = String(empleadoId || '');
+    if (!/^[a-f\d]{24}$/i.test(companyId)) {
+      const error = new Error('No se pudo identificar la empresa para actualizar el colaborador.');
+      error.statusCode = 403;
+      throw error;
+    }
+    if (!/^[a-f\d]{24}$/i.test(employeeId)) {
+      const error = new Error('El identificador del colaborador no es válido.');
+      error.statusCode = 400;
+      throw error;
+    }
+    const empleado = await Empleado.findOne({
+      _id: new mongoose.Types.ObjectId(employeeId),
+      empresaId: new mongoose.Types.ObjectId(companyId)
+    });
     if (!empleado) {
       const error = new Error('No se encontró una cuenta de colaborador de esta empresa.');
       error.statusCode = 404;
