@@ -1571,7 +1571,7 @@ class EmpresaController {
           message: 'El archivo Excel ya no está disponible en el servidor.'
         });
       }
-      const XLSX = require('xlsx');
+      const XLSX = require('@e965/xlsx');
       const workbook = XLSX.readFile(filePath, { cellDates: true });
       const insights = extractSpreadsheetInsights(workbook);
       const maxRows = 500;

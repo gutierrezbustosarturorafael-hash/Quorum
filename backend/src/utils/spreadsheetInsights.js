@@ -1,4 +1,4 @@
-const getXlsx = () => require('xlsx');
+const getXlsx = () => require('@e965/xlsx');
 
 const normalize = value => String(value || '')
   .normalize('NFD')

@@ -582,7 +582,7 @@ const MeetingManager = ({ reuniones, setReuniones, companyData, objetivos = [], 
   const getDocumentUrl = document => {
     if (!document?.url) return '#';
     if (document.url.startsWith('http')) return document.url;
-    const apiUrl = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+    const apiUrl = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || 'http://localhost:5000/api';
     const serverUrl = apiUrl.replace(/\/api\/?$/, '').replace(/\/+$/, '');
     const documentPath = String(document.url).startsWith('/')
       ? document.url

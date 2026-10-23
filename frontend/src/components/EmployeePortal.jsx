@@ -8,7 +8,7 @@ import ProductivityGraph from './ProductivityGraph';
 import CompanyOrganizationChart from './CompanyOrganizationChart';
 import { sortMeetingsByProximity } from '../utils/meetingDate';
 
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const SERVER_URL = API_URL.replace(/\/api\/?$/, '').replace(/\/+$/, '');
 const tokenStorageKey = companyId => `quorumEmployeeToken:${companyId}`;
 const getTodayLocalDate = () => {
@@ -1058,7 +1058,7 @@ const EmployeePortal = ({ companyId }) => {
       <header className="employee-portal-header app-navbar">
         <Container fluid className="employee-portal-header-inner">
           <div className="employee-portal-brand">
-            <img className="brand-logo" src={`${process.env.PUBLIC_URL}/quorum-logo.png`} alt="Quorum · Minutas, convocatorias, acuerdos y asambleas" />
+            <img className="brand-logo" src="/quorum-logo.png" alt="Quorum · Minutas, convocatorias, acuerdos y asambleas" />
             <span className="employee-portal-product">Portal de colaboradores</span>
           </div>
           {portal && !loading && (

@@ -232,7 +232,7 @@ function OrganizerApp() {
       <Navbar bg={interfacePreferences.theme === 'dark' ? 'dark' : 'light'} variant={interfacePreferences.theme === 'dark' ? 'dark' : 'light'} expand="lg" className="app-navbar">
         <Container fluid>
           <Navbar.Brand className="d-flex align-items-center gap-2">
-            <img className="brand-logo" src={`${process.env.PUBLIC_URL}/quorum-logo.png`} alt="Quorum · Minutas, convocatorias, acuerdos y asambleas" />
+            <img className="brand-logo" src="/quorum-logo.png" alt="Quorum · Minutas, convocatorias, acuerdos y asambleas" />
           </Navbar.Brand>
           <Navbar.Toggle aria-controls="basic-navbar-nav" />
           <Navbar.Collapse id="basic-navbar-nav">
