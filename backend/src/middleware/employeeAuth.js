@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
+const { COOKIE_NAMES, getCookieToken } = require('../utils/authCookies');
 
 const employeeAuth = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = getCookieToken(req, COOKIE_NAMES.employee);
   if (!token) {
     return res.status(401).json({ success: false, message: 'Inicia sesión con tu cuenta individual de colaborador.' });
   }

@@ -4,7 +4,9 @@ import ApiService from '../services/apiService';
 
 const ReviewerPanel = () => {
   const [credentials, setCredentials] = useState({ email: '', password: '', adminBootstrapKey: '' });
-  const [token, setToken] = useState(sessionStorage.getItem('reviewerToken'));
+  const [token, setToken] = useState(false);
+  const [challengeId, setChallengeId] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [companies, setCompanies] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -12,19 +14,20 @@ const ReviewerPanel = () => {
   const [statusFilter, setStatusFilter] = useState('todos');
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
-  const [loadingCompanies, setLoadingCompanies] = useState(Boolean(token));
+  const [loadingCompanies, setLoadingCompanies] = useState(true);
   const [showPassword, setShowPassword] = useState(false);
 
-  const loadCompanies = async currentToken => {
+  const loadCompanies = async () => {
     setLoadingCompanies(true);
     try {
-      const response = await ApiService.getReviewerCompanies(currentToken);
+      const response = await ApiService.getReviewerCompanies();
       setCompanies(response.data || []);
       setMessage('');
     } catch (error) {
-      sessionStorage.removeItem('reviewerToken');
       setToken(null);
-      setMessage(error.message || 'No se pudo cargar la información. Recarga la página e inténtalo de nuevo.');
+      if (error.status !== 401) {
+        setMessage(error.message || 'No se pudo cargar la información. Recarga la página e inténtalo de nuevo.');
+      }
       throw error;
     } finally {
       setLoadingCompanies(false);
@@ -32,8 +35,8 @@ const ReviewerPanel = () => {
   };
 
   useEffect(() => {
-    if (token) loadCompanies(token).catch(() => {});
-  }, [token]);
+    loadCompanies().catch(() => {});
+  }, []);
 
   const login = async event => {
     event.preventDefault();
@@ -44,15 +47,45 @@ const ReviewerPanel = () => {
         credentials.password,
         credentials.adminBootstrapKey
       );
-      sessionStorage.setItem('reviewerToken', response.token);
       setCredentials(current => ({ ...current, adminBootstrapKey: '' }));
-      setLoadingCompanies(true);
-      setToken(response.token);
+      setChallengeId(response.challengeId);
+      setVerificationCode('');
       setMessage('');
     } catch (error) {
       setMessage(error.message || 'No se pudo iniciar sesión. Verifica tus datos.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const verifyCode = async event => {
+    event.preventDefault();
+    setLoading(true);
+    try {
+      await ApiService.verifyLoginChallenge(challengeId, verificationCode);
+      setChallengeId('');
+      setVerificationCode('');
+      setLoadingCompanies(true);
+      setToken(true);
+      await loadCompanies();
+      setMessage('');
+    } catch (error) {
+      setMessage(error.message || 'No se pudo verificar el código.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const logout = async () => {
+    try {
+      await ApiService.logout('reviewer');
+      setToken(false);
+      setCompanies([]);
+      setChallengeId('');
+      setVerificationCode('');
+      setMessage('');
+    } catch (error) {
+      setMessage(error.message || 'No se pudo cerrar la sesión.');
     }
   };
 
@@ -122,7 +155,39 @@ const ReviewerPanel = () => {
             <h1 className="h4 mt-2">Administración y revisión</h1>
             <p className="text-muted small">Solo el administrador autorizado puede revisar solicitudes.</p>
             {message && <Alert variant="danger">{message}</Alert>}
-            <Form onSubmit={login}>
+            {challengeId ? (
+              <Form onSubmit={verifyCode}>
+                <p className="text-muted small">Ingresa el código de seis dígitos enviado al correo de tu cuenta. Vence en 5 minutos.</p>
+                <Form.Control
+                  className="mb-3"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  pattern="[0-9]{6}"
+                  maxLength={6}
+                  aria-label="Código de verificación"
+                  value={verificationCode}
+                  onChange={event => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                  required
+                />
+                <Button className="w-100" type="submit" disabled={loading || verificationCode.length !== 6}>
+                  {loading ? 'Verificando...' : 'Verificar y entrar'}
+                </Button>
+                <Button
+                  variant="link"
+                  className="w-100 mt-2"
+                  type="button"
+                  disabled={loading}
+                  onClick={() => {
+                    setChallengeId('');
+                    setVerificationCode('');
+                    setMessage('');
+                  }}
+                >
+                  Volver al inicio de sesión
+                </Button>
+              </Form>
+            ) : <Form onSubmit={login}>
               <Form.Control className="mb-3" type="email" autoComplete="username" placeholder="Correo de tu cuenta empresarial" value={credentials.email} onChange={e => setCredentials({ ...credentials, email: e.target.value })} required />
               <InputGroup className="mb-3">
                 <Form.Control
@@ -155,7 +220,7 @@ const ReviewerPanel = () => {
                 </Form.Text>
               </Form.Group>
               <Button className="w-100" type="submit" disabled={loading}>{loading ? 'Validando...' : 'Entrar al panel'}</Button>
-            </Form>
+            </Form>}
           </Card.Body>
         </Card>
       </div>
@@ -170,7 +235,7 @@ const ReviewerPanel = () => {
           <h1 className="h3 mb-1">Administración y revisión de empresas</h1>
           <p className="text-muted mb-0">Revisa los datos fiscales y actualiza el estado de cada empresa.</p>
         </div>
-        <Button variant="outline-secondary" onClick={() => { sessionStorage.removeItem('reviewerToken'); setToken(null); }}>Salir</Button>
+        <Button variant="outline-secondary" onClick={logout}>Salir</Button>
       </div>
       {message && <Alert variant="danger">{message}</Alert>}
       <div className="reviewer-stats mb-4">

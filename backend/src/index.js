@@ -55,6 +55,8 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 const allowedOrigins = [
   'http://localhost:3000',
   'http://127.0.0.1:3000',
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -68,21 +70,14 @@ app.use(cors({
     // Peticiones sin origen (Postman, curl, apps móviles, etc.)
     if (!origin) return callback(null, true);
 
-    // Túneles de VS Code (*.devtunnels.ms)
-    if (/^https:\/\/[a-z\d-]+(?:\.[a-z\d-]+)*\.devtunnels\.ms$/i.test(origin)) return callback(null, true);
-
-    // IPs de red local: 192.168.x.x, 10.x.x.x, 172.16-31.x.x (con puerto opcional)
-    if (/^http:\/\/(192\.168\.\d{1,3}\.\d{1,3}|10\.\d{1,3}\.\d{1,3}\.\d{1,3}|172\.(1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})(:\d+)?$/.test(origin)) {
-      return callback(null, true);
-    }
-
     // Orígenes de la lista blanca
     if (allowedOrigins.includes(origin)) return callback(null, true);
 
     // Rechazar cualquier otro origen
     return callback(new Error(`Origen no permitido por CORS: ${origin}`));
   },
-  credentials: false
+  credentials: true,
+  allowedHeaders: ['Content-Type', 'X-Quorum-Request']
 }));
 
 app.use((req, res, next) => {
@@ -100,6 +95,16 @@ app.use((req, res, next) => {
 
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true }));
+
+app.use('/api', (req, res, next) => {
+  const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
+  const origin = req.get('Origin');
+  if (isMutation && (req.get('X-Quorum-Request') !== '1'
+    || (origin && !allowedOrigins.includes(origin)))) {
+    return res.status(403).json({ success: false, message: 'La solicitud no pasó la verificación de origen.' });
+  }
+  next();
+});
 
 app.use('/uploads', (req, res, next) => {
   try {

@@ -30,15 +30,21 @@ const INITIAL_FORM = {
 
 const TERMS_VERSION = '2026-09-23';
 
-const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
+const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess, onVerify }) => {
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [challengeId, setChallengeId] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationError, setVerificationError] = useState('');
 
   const switchMode = nextMode => {
     setStep(1);
     setShowPassword(false);
+    setChallengeId('');
+    setVerificationCode('');
+    setVerificationError('');
     onModeChange(nextMode);
   };
 
@@ -46,6 +52,9 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
     if (show) {
       setStep(1);
       setShowPassword(false);
+      setChallengeId('');
+      setVerificationCode('');
+      setVerificationError('');
     }
   }, [show]);
 
@@ -102,7 +111,8 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
       termsVersion: TERMS_VERSION
     };
     try {
-      await onSuccess(data);
+      const response = await onSuccess(data);
+      if (response?.requiresTwoFactor) setChallengeId(response.challengeId);
     } finally {
       setLoading(false);
     }
@@ -112,7 +122,21 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
     event.preventDefault();
     setLoading(true);
     try {
-      await onSuccess({ email: formData.email, password: formData.password });
+      const response = await onSuccess({ email: formData.email, password: formData.password });
+      if (response?.requiresTwoFactor) setChallengeId(response.challengeId);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleVerificationSubmit = async event => {
+    event.preventDefault();
+    setLoading(true);
+    setVerificationError('');
+    try {
+      await onVerify(challengeId, verificationCode);
+    } catch (error) {
+      setVerificationError(error.message || 'No se pudo verificar el código.');
     } finally {
       setLoading(false);
     }
@@ -140,7 +164,33 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
       </Modal.Header>
       <Modal.Body className="auth-modal-body">
         <div className="auth-modal-content">
-        {mode === 'login' ? (
+        {challengeId ? (
+          <Form onSubmit={handleVerificationSubmit}>
+            <p className="text-muted small">
+              Enviamos un código de seis dígitos al correo de tu cuenta. Vence en 5 minutos.
+            </p>
+            {verificationError && <div className="alert alert-danger" role="alert">{verificationError}</div>}
+            <Form.Group className="mb-3">
+              <Form.Label>Código de verificación</Form.Label>
+              <Form.Control
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={verificationCode}
+                onChange={event => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                required
+              />
+            </Form.Group>
+            <div className="d-flex justify-content-end gap-2">
+              <Button variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
+              <Button variant="primary" type="submit" disabled={loading || verificationCode.length !== 6}>
+                {loading ? 'Verificando...' : 'Verificar y entrar'}
+              </Button>
+            </div>
+          </Form>
+        ) : mode === 'login' ? (
           <Form onSubmit={handleLoginSubmit}>
             <p className="text-muted small">Ingresa tus credenciales para acceder a Quorum.</p>
             <Form.Group className="mb-3">
@@ -307,7 +357,7 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
                       <p><strong>2. Definiciones.</strong> “Empresa” es la organización registrada en Quorum; “usuario” es la persona que utiliza sus credenciales; “administrador” es la persona autorizada para revisar solicitudes empresariales; “contenido” incluye datos, textos, archivos, minutas, acuerdos, indicadores y cualquier información cargada o generada dentro de la plataforma.</p>
                       <p><strong>3. Requisitos de registro.</strong> Debes proporcionar información verdadera, completa y actualizada. La persona que registra una empresa declara que está autorizada para proporcionar sus datos y crear el acceso correspondiente. No debes registrar una empresa en nombre de otra persona sin autorización. Quorum puede rechazar, suspender o solicitar aclaraciones sobre registros incompletos, inconsistentes o que no puedan verificarse.</p>
                       <p><strong>4. Datos empresariales y fiscales.</strong> El registro puede incluir nombre comercial, tipo de persona, razón social, RFC, domicilio y régimen fiscal, representante legal, teléfono, correo, misión, visión, valores, departamentos, estrategias, metas, indicadores y análisis FODA. Estos datos se utilizan para identificar la cuenta, mostrar la información institucional y operar las funciones de gestión. La validación local del formato del RFC no constituye certificación, opinión ni validación fiscal ante una autoridad.</p>
-                      <p><strong>5. Cuenta, contraseña y sesiones.</strong> El usuario debe proteger su correo y contraseña, no compartirlos y cerrar sesión en equipos compartidos. La sesión se mantiene mediante un token almacenado en el navegador durante su vigencia. Debes informar de inmediato a la persona responsable de la empresa si sospechas de un uso no autorizado. Quorum no solicitará tu contraseña por correo ni debe recibirla por medios distintos al formulario de acceso.</p>
+                      <p><strong>5. Cuenta, contraseña y sesiones.</strong> El usuario debe proteger su correo y contraseña, no compartirlos y cerrar sesión en equipos compartidos. La sesión se mantiene mediante una cookie protegida que no es accesible para el código JavaScript de la aplicación y vence según el tipo de cuenta. Debes informar de inmediato a la persona responsable de la empresa si sospechas de un uso no autorizado. Quorum no solicitará tu contraseña por correo ni debe recibirla por medios distintos al formulario de acceso.</p>
                       <p><strong>6. Roles y autorización interna.</strong> La cuenta empresarial controla la información de su organización. La empresa es responsable de decidir quién puede acceder al sistema, qué datos puede registrar y qué documentos puede cargar. Las personas que agregues como directivos, participantes, responsables o coordinadores deben ser personas relacionadas con la operación de la empresa y deben tener autorización para que sus datos sean utilizados en ese contexto.</p>
                       <p><strong>7. Reuniones, acuerdos e indicadores.</strong> La empresa es responsable de la exactitud de las fechas, horarios, áreas, participantes, acuerdos, minutas, seguimientos e indicadores registrados. Los indicadores creados durante una reunión pueden asociarse a un departamento y reflejarse en el plan estratégico. Las marcas de avance son registros de gestión y no constituyen auditorías, certificaciones, resultados financieros ni garantías de cumplimiento.</p>
                       <p><strong>8. Documentos y archivos.</strong> Quorum permite cargar documentos PDF, Excel y Word asociados a reuniones, sujetos a los límites técnicos mostrados en la plataforma. Solo debes cargar archivos que tengas derecho y autorización para usar. No cargues malware, archivos dañados deliberadamente, información obtenida ilícitamente ni contenido que infrinja derechos de autor, secretos empresariales, obligaciones de confidencialidad o derechos de terceros. Debes conservar copias de respaldo de los archivos importantes.</p>

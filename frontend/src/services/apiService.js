@@ -10,21 +10,21 @@ class ApiService {
   }
 
   static async request(endpoint, options = {}) {
-    const token = localStorage.getItem('token');
-
     const headers = {
       'Content-Type': 'application/json',
       ...options.headers
     };
 
-    if (token && !headers.Authorization) {
-      headers['Authorization'] = `Bearer ${token}`;
-    }
+    headers['X-Quorum-Request'] = '1';
+    Object.keys(headers)
+      .filter(name => name.toLowerCase() === 'authorization')
+      .forEach(name => delete headers[name]);
 
     try {
       const response = await fetch(`${API_URL}${endpoint}`, {
         ...options,
-        headers
+        headers,
+        credentials: 'include'
       });
 
       const contentType = response.headers.get('content-type') || '';
@@ -92,6 +92,24 @@ class ApiService {
     });
   }
 
+  static async verifyLoginChallenge(challengeId, code) {
+    return this.request('/auth/verify', {
+      method: 'POST',
+      body: JSON.stringify({ challengeId, code })
+    });
+  }
+
+  static async logout(type) {
+    return this.request('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ type })
+    });
+  }
+
+  static async getEmployeeSession() {
+    return this.request('/employee/session');
+  }
+
   static async getReviewerCompanies(token) {
     return this.request('/reviewer/empresas', {
       headers: { Authorization: `Bearer ${token}` }
@@ -111,9 +129,9 @@ class ApiService {
   }
 
   static async exportCompanyText() {
-    const token = localStorage.getItem('token');
     const response = await fetch(`${API_URL}/empresa/exportar-texto`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {}
+      headers: { 'X-Quorum-Request': '1' },
+      credentials: 'include'
     });
 
     if (!response.ok) {
@@ -191,7 +209,8 @@ class ApiService {
     formData.append('archivo', file);
     const response = await fetch(`${API_URL}/employee/meetings/${meetingId}/spreadsheets`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
+      headers: { 'X-Quorum-Request': '1' },
+      credentials: 'include',
       body: formData
     });
     const contentType = response.headers.get('content-type') || '';
@@ -338,12 +357,12 @@ class ApiService {
   }
 
   static async uploadStrategicPlan(file) {
-    const token = localStorage.getItem('token');
     const formData = new FormData();
     formData.append('archivo', file);
     const response = await fetch(`${API_URL}/empresa/plan-estrategico`, {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { 'X-Quorum-Request': '1' },
+      credentials: 'include',
       body: formData
     });
     const contentType = response.headers.get('content-type') || '';
@@ -402,7 +421,6 @@ class ApiService {
   }
 
   static async uploadReunionDocumento(id, area, file, options = {}) {
-    const token = localStorage.getItem('token');
     const formData = new FormData();
     formData.append('area', area);
     if (options.esPresentacionPrincipal) {
@@ -413,7 +431,8 @@ class ApiService {
 
     const response = await fetch(`${API_URL}/reuniones/${id}/documentos`, {
       method: 'POST',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { 'X-Quorum-Request': '1' },
+      credentials: 'include',
       body: formData
     });
     const contentType = response.headers.get('content-type') || '';
@@ -446,12 +465,12 @@ class ApiService {
   }
 
   static async replaceReunionDocumento(id, documentoId, file) {
-    const token = localStorage.getItem('token');
     const formData = new FormData();
     formData.append('archivo', file);
     const response = await fetch(`${API_URL}/reuniones/${id}/documentos/${documentoId}`, {
       method: 'PUT',
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      headers: { 'X-Quorum-Request': '1' },
+      credentials: 'include',
       body: formData
     });
     const contentType = response.headers.get('content-type') || '';

@@ -9,6 +9,7 @@ const employeeAssignmentAuth = require('../middleware/employeeAssignmentAuth');
 const employeeSpreadsheetUpload = require('../middleware/employeeSpreadsheetUpload');
 const presentationUpload = require('../middleware/presentationUpload');
 const strategicPlanUpload = require('../middleware/strategicPlanUpload');
+const authRateLimit = require('../middleware/authRateLimit');
 const { withUploadedFileCleanup } = require('../utils/uploadFiles');
 const {
   registerValidation,
@@ -18,18 +19,20 @@ const {
 } = require('../middleware/validation');
 
 // ===== RUTAS PUBLICAS =====
-router.post('/register', registerValidation, EmpresaController.register);
-router.post('/login', loginValidation, EmpresaController.login);
-router.post('/reviewer/login', EmpresaController.reviewerLogin);
-router.post('/admin/login', EmpresaController.reviewerLogin);
+router.post('/register', registerValidation, authRateLimit, EmpresaController.register);
+router.post('/login', loginValidation, authRateLimit, EmpresaController.login);
+router.post('/reviewer/login', loginValidation, authRateLimit, EmpresaController.reviewerLogin);
+router.post('/admin/login', loginValidation, authRateLimit, EmpresaController.reviewerLogin);
+router.post('/auth/verify', EmpresaController.verifyLoginChallenge);
+router.post('/auth/logout', EmpresaController.logout);
 router.get('/reviewer/empresas', reviewerAuth, EmpresaController.listForReview);
 router.put('/reviewer/empresas/:id', reviewerAuth, EmpresaController.reviewEmpresa);
 router.get('/admin/empresas', reviewerAuth, EmpresaController.listForReview);
 router.put('/admin/empresas/:id', reviewerAuth, EmpresaController.reviewEmpresa);
 router.get('/health', EmpresaController.healthCheck);
 router.post('/employee/company-lookup', EmpresaController.getEmployeeCompanyByCode);
-router.post('/employee/account/register', EmpresaController.registerEmployeeAccount);
-router.post('/employee/account/login', EmpresaController.employeeAccountLogin);
+router.post('/employee/account/register', authRateLimit, EmpresaController.registerEmployeeAccount);
+router.post('/employee/account/login', loginValidation, authRateLimit, EmpresaController.employeeAccountLogin);
 
 // ===== RUTAS PROTEGIDAS =====
 
@@ -52,6 +55,7 @@ router.delete('/empresa/empleados/:employeeId/indicadores-personales/:objectiveI
 
 // Portal independiente de empleados
 router.get('/employee/portal', employeeAuth, EmpresaController.getEmployeePortal);
+router.get('/employee/session', employeeAuth, EmpresaController.employeeSession);
 router.post('/employee/team/employees', employeeAuth, employeeAssignmentAuth, EmpresaController.addEmployeeFromEmployeePortal);
 router.post('/employee/meetings/:id/spreadsheets', employeeAuth, employeeAssignmentAuth, employeeSpreadsheetUpload.single('archivo'), withUploadedFileCleanup(EmpresaController.uploadEmployeeMeetingSpreadsheet));
 router.delete('/employee/meetings/:id/spreadsheets/:documentId', employeeAuth, employeeAssignmentAuth, EmpresaController.deleteEmployeeMeetingSpreadsheet);

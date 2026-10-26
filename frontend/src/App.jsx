@@ -20,6 +20,14 @@ const LoadingFallback = () => (
 );
 
 function App() {
+  useEffect(() => {
+    localStorage.removeItem('token');
+    sessionStorage.removeItem('reviewerToken');
+    Object.keys(sessionStorage)
+      .filter(key => key.startsWith('quorumEmployeeToken:'))
+      .forEach(key => sessionStorage.removeItem(key));
+  }, []);
+
   const employeeRoute = window.location.pathname.match(/^\/empleados(?:\/([^/]+))?\/?$/);
   if (employeeRoute) {
     return (
@@ -101,10 +109,9 @@ function OrganizerApp() {
         type: String(message).toLowerCase().includes('error') ? 'error' : 'info'
       });
     };
-    const token = localStorage.getItem('token');
-    if (!isReviewerPath && token) {
+    if (!isReviewerPath) {
       loadData();
-    } else if (isReviewerPath || !token) {
+    } else {
       setIsLoading(false);
     }
     return () => {
@@ -159,13 +166,15 @@ function OrganizerApp() {
           }))
         })));
         setIsAuthenticated(true);
+        setIsLoading(false);
+        return true;
       }
     } catch (error) {
       console.error('Error loading data:', error);
-      localStorage.removeItem('token');
       setIsAuthenticated(false);
     }
     setIsLoading(false);
+    return false;
   };
 
   const handleAuth = async (data) => {
@@ -176,12 +185,7 @@ function OrganizerApp() {
       } else {
         response = await ApiService.login(data.email, data.password);
       }
-      
-      if (response.success) {
-        localStorage.setItem('token', response.token);
-        await loadData();
-        setShowAuthModal(false);
-      }
+      return response;
     } catch (error) {
       console.error('Auth error:', error);
       const supportMessage = error.supportEmail
@@ -191,8 +195,22 @@ function OrganizerApp() {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('token');
+  const handleVerifyAuth = async (challengeId, code) => {
+    await ApiService.verifyLoginChallenge(challengeId, code);
+    if (!await loadData()) {
+      throw new Error('No se pudo cargar la sesión. Intenta iniciar sesión de nuevo.');
+    }
+    setShowAuthModal(false);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await ApiService.logout('company');
+    } catch (error) {
+      console.error('Logout error:', error);
+      alert(error.message || 'No se pudo cerrar la sesión.');
+      return;
+    }
     setShowSettingsModal(false);
     setIsAuthenticated(false);
     setCompanyData(null);
@@ -414,6 +432,7 @@ function OrganizerApp() {
             onModeChange={setAuthMode}
             onClose={() => setShowAuthModal(false)}
             onSuccess={handleAuth}
+            onVerify={handleVerifyAuth}
           />
         </Suspense>
       )}

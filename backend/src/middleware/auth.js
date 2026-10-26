@@ -1,7 +1,8 @@
 const jwt = require('jsonwebtoken');
+const { COOKIE_NAMES, getCookieToken } = require('../utils/authCookies');
 
 const authMiddleware = (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = getCookieToken(req, COOKIE_NAMES.company);
   
   if (!token) {
     return res.status(401).json({ success: false, message: 'Token no proporcionado' });

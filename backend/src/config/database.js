@@ -1,4 +1,5 @@
 const mongoose = require('mongoose');
+const { initializeAuthSecurity } = require('../services/authSecurity');
 
 const readPositiveInteger = (name, fallback) => {
   const value = Number(process.env[name]);
@@ -25,6 +26,7 @@ const connectDB = async () => {
       minPoolSize: readNonNegativeInteger('MONGODB_MIN_POOL_SIZE', 0),
       retryWrites: true
     });
+    await initializeAuthSecurity();
     console.log(` MongoDB Connected: ${conn.connection.host}`);
     console.log(` Database: ${conn.connection.name}`);
 

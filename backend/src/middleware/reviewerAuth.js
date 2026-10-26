@@ -1,8 +1,9 @@
 const jwt = require('jsonwebtoken');
 const EmpresaModel = require('../models/empresaModel');
+const { COOKIE_NAMES, getCookieToken } = require('../utils/authCookies');
 
 module.exports = async (req, res, next) => {
-  const token = req.headers.authorization?.split(' ')[1];
+  const token = getCookieToken(req, COOKIE_NAMES.reviewer);
   if (!token) {
     return res.status(401).json({ success: false, message: 'Acceso de revisor no autorizado' });
   }

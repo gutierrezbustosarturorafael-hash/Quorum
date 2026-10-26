@@ -8,6 +8,43 @@ const escapeHtml = value => String(value ?? '')
   .replace(/'/g, '&#039;');
 
 class EmailService {
+  async sendSecurityCode(to, code) {
+    const port = Number(process.env.SMTP_PORT);
+    if (!process.env.SMTP_HOST || !Number.isInteger(port) || port < 1 || port > 65535
+      || !process.env.SMTP_USER || !process.env.SMTP_PASSWORD
+      || !['true', 'false'].includes(process.env.SMTP_SECURE)) {
+      const error = new Error('El servicio de correo para códigos de seguridad no está configurado.');
+      error.statusCode = 503;
+      throw error;
+    }
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port,
+      secure: process.env.SMTP_SECURE === 'true',
+      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASSWORD },
+      tls: { rejectUnauthorized: true },
+      connectionTimeout: 10000,
+      greetingTimeout: 10000,
+      socketTimeout: 20000
+    });
+    try {
+      await transporter.sendMail({
+        from: process.env.SMTP_FROM || process.env.SMTP_USER,
+        to,
+        subject: 'Tu código de verificación de Quorum',
+        text: `Tu código de verificación es ${code}. Vence en 5 minutos. Si no solicitaste este acceso, ignora este mensaje.`,
+        html: `<p>Tu código de verificación de Quorum es:</p><p style="font-size:24px;font-weight:bold;letter-spacing:4px">${code}</p><p>Vence en 5 minutos. Si no solicitaste este acceso, ignora este mensaje.</p>`
+      });
+    } catch (cause) {
+      console.error('Security code email delivery failed:', cause.message);
+      const error = new Error('No se pudo enviar el código de seguridad. Inténtalo más tarde.');
+      error.statusCode = 503;
+      throw error;
+    } finally {
+      transporter.close();
+    }
+  }
+
   createTransporter(smtpConfig) {
     const providers = {
       gmail: { host: 'smtp.gmail.com', port: 465, secure: true },

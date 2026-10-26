@@ -10,7 +10,6 @@ import { sortMeetingsByProximity } from '../utils/meetingDate';
 
 const API_URL = import.meta.env.VITE_API_URL || import.meta.env.REACT_APP_API_URL || 'http://localhost:5000/api';
 const SERVER_URL = API_URL.replace(/\/api\/?$/, '').replace(/\/+$/, '');
-const tokenStorageKey = companyId => `quorumEmployeeToken:${companyId}`;
 const getTodayLocalDate = () => {
   const date = new Date();
   const offset = date.getTimezoneOffset() * 60000;
@@ -247,6 +246,9 @@ const EmployeePortal = ({ companyId }) => {
   const [teamAreaFilter, setTeamAreaFilter] = useState('');
   const [lookingUpCompany, setLookingUpCompany] = useState(false);
   const [token, setToken] = useState('');
+  const [challengeId, setChallengeId] = useState('');
+  const [challengeCompanyId, setChallengeCompanyId] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
   const [portal, setPortal] = useState(null);
   const [uploadingSpreadsheetMeetingId, setUploadingSpreadsheetMeetingId] = useState('');
   const [pendingSpreadsheetFiles, setPendingSpreadsheetFiles] = useState({});
@@ -361,23 +363,19 @@ const EmployeePortal = ({ companyId }) => {
   };
 
   useEffect(() => {
-    const rememberedCompanyId = companyId || sessionStorage.getItem('quorumEmployeeCompanyId');
-    if (!rememberedCompanyId) return;
-    const savedToken = sessionStorage.getItem(tokenStorageKey(rememberedCompanyId));
-    if (!savedToken) return;
     setLoading(true);
-    loadPortal(savedToken)
-      .then(() => {
-        setToken(savedToken);
-        setError('');
+    ApiService.getEmployeeSession()
+      .then(response => {
+        const rememberedCompanyId = String(response.empresaId);
         sessionStorage.setItem('quorumEmployeeCompanyId', rememberedCompanyId);
+        setToken('authenticated');
+        setError('');
+        return loadPortal('authenticated');
       })
       .catch(loadError => {
-        if ([401, 403, 404].includes(loadError.status)) {
-          sessionStorage.removeItem(tokenStorageKey(rememberedCompanyId));
-          if (!companyId) sessionStorage.removeItem('quorumEmployeeCompanyId');
+        if (loadError.status !== 401) {
+          setError(loadError.message || 'No se pudo cargar tu espacio. Inténtalo de nuevo.');
         }
-        setError(loadError.message || 'No se pudo cargar tu espacio. Inténtalo de nuevo.');
       })
       .finally(() => setLoading(false));
   }, [companyId, loadPortal]);
@@ -474,20 +472,37 @@ const EmployeePortal = ({ companyId }) => {
           subarea: registrationSubarea
         })
         : await ApiService.employeeAccountLogin(account.email, account.password);
-      sessionStorage.setItem(tokenStorageKey(response.empresaId), response.token);
       sessionStorage.setItem('quorumEmployeeCompanyId', response.empresaId);
+      setChallengeCompanyId(String(response.empresaId));
+      setChallengeId(response.challengeId);
+      setVerificationCode('');
       if (accessMode === 'register') {
         setRegistrationDepartments(response.departamentos || []);
       }
-      if (String(response.empresaId) !== String(companyId)) {
-        window.location.assign(`/empleados/${response.empresaId}`);
-        return;
-      }
-      setToken(response.token);
-      await loadPortal(response.token);
     } catch (requestError) {
       setError(requestError.message || 'No se pudo procesar la cuenta de colaborador.');
       if (requestError.code === 'EMPLOYEE_ACCOUNT_EXISTS') setAccessMode('login');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const verifyEmployeeCode = async event => {
+    event.preventDefault();
+    setError('');
+    setLoading(true);
+    try {
+      await ApiService.verifyLoginChallenge(challengeId, verificationCode);
+      sessionStorage.setItem('quorumEmployeeCompanyId', challengeCompanyId);
+      setChallengeId('');
+      setVerificationCode('');
+      setToken('authenticated');
+      await loadPortal('authenticated');
+      if (companyId && String(challengeCompanyId) !== String(companyId)) {
+        window.location.assign(`/empleados/${challengeCompanyId}`);
+      }
+    } catch (requestError) {
+      setError(requestError.message || 'No se pudo verificar el código.');
     } finally {
       setLoading(false);
     }
@@ -529,9 +544,13 @@ const EmployeePortal = ({ companyId }) => {
     }
   };
 
-  const leavePortal = () => {
-    const activeCompanyId = companyId || sessionStorage.getItem('quorumEmployeeCompanyId');
-    if (activeCompanyId) sessionStorage.removeItem(tokenStorageKey(activeCompanyId));
+  const leavePortal = async () => {
+    try {
+      await ApiService.logout('employee');
+    } catch (logoutError) {
+      setError(logoutError.message || 'No se pudo cerrar la sesión.');
+      return;
+    }
     sessionStorage.removeItem('quorumEmployeeCompanyId');
     setPortal(null);
     setToken('');
@@ -1350,7 +1369,41 @@ const EmployeePortal = ({ companyId }) => {
                   <button type="button" aria-pressed={accessMode === 'login'} className={accessMode === 'login' ? 'is-active' : ''} onClick={() => setAccessMode('login')}>Iniciar sesión</button>
                   <button type="button" aria-pressed={accessMode === 'register'} className={accessMode === 'register' ? 'is-active' : ''} onClick={() => setAccessMode('register')}>Crear cuenta</button>
                 </div>
-                <Form onSubmit={submitAccount}>
+                {challengeId ? (
+                  <Form onSubmit={verifyEmployeeCode}>
+                    <Alert variant="info">Enviamos un código de seis dígitos al correo de tu cuenta. Vence en 5 minutos.</Alert>
+                    {error && <Alert variant="danger">{error}</Alert>}
+                    <Form.Group className="mb-3">
+                      <Form.Label>Código de verificación</Form.Label>
+                      <Form.Control
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="one-time-code"
+                        pattern="[0-9]{6}"
+                        maxLength={6}
+                        value={verificationCode}
+                        onChange={event => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
+                        required
+                      />
+                    </Form.Group>
+                    <Button type="submit" disabled={loading || verificationCode.length !== 6} className="w-100">
+                      {loading ? <><Spinner size="sm" className="me-2" />Verificando...</> : 'Verificar y entrar'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="link"
+                      className="w-100 mt-2"
+                      disabled={loading}
+                      onClick={() => {
+                        setChallengeId('');
+                        setVerificationCode('');
+                        setError('');
+                      }}
+                    >
+                      Volver al inicio de sesión
+                    </Button>
+                  </Form>
+                ) : <Form onSubmit={submitAccount}>
                   <div className="mb-3">
                     <PrivacyNotice audience="employee" />
                   </div>
@@ -1444,7 +1497,7 @@ const EmployeePortal = ({ companyId }) => {
                   >
                     {loading ? <><Spinner size="sm" className="me-2" />Procesando...</> : accessMode === 'register' ? 'Crear cuenta' : 'Entrar'}
                   </Button>
-                </Form>
+                </Form>}
               </Card.Body>
             </Card>
               </div>
