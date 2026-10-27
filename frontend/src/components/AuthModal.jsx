@@ -30,21 +30,14 @@ const INITIAL_FORM = {
 
 const TERMS_VERSION = '2026-09-23';
 
-const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess, onVerify }) => {
+const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess }) => {
   const [formData, setFormData] = useState(INITIAL_FORM);
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
-  const [challengeId, setChallengeId] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
-  const [verificationError, setVerificationError] = useState('');
-
   const switchMode = nextMode => {
     setStep(1);
     setShowPassword(false);
-    setChallengeId('');
-    setVerificationCode('');
-    setVerificationError('');
     onModeChange(nextMode);
   };
 
@@ -52,9 +45,6 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess, onVerify }) =
     if (show) {
       setStep(1);
       setShowPassword(false);
-      setChallengeId('');
-      setVerificationCode('');
-      setVerificationError('');
     }
   }, [show]);
 
@@ -111,8 +101,7 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess, onVerify }) =
       termsVersion: TERMS_VERSION
     };
     try {
-      const response = await onSuccess(data);
-      if (response?.requiresTwoFactor) setChallengeId(response.challengeId);
+      await onSuccess(data);
     } finally {
       setLoading(false);
     }
@@ -122,21 +111,7 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess, onVerify }) =
     event.preventDefault();
     setLoading(true);
     try {
-      const response = await onSuccess({ email: formData.email, password: formData.password });
-      if (response?.requiresTwoFactor) setChallengeId(response.challengeId);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleVerificationSubmit = async event => {
-    event.preventDefault();
-    setLoading(true);
-    setVerificationError('');
-    try {
-      await onVerify(challengeId, verificationCode);
-    } catch (error) {
-      setVerificationError(error.message || 'No se pudo verificar el código.');
+      await onSuccess({ email: formData.email, password: formData.password });
     } finally {
       setLoading(false);
     }
@@ -164,33 +139,7 @@ const AuthModal = ({ show, mode, onModeChange, onClose, onSuccess, onVerify }) =
       </Modal.Header>
       <Modal.Body className="auth-modal-body">
         <div className="auth-modal-content">
-        {challengeId ? (
-          <Form onSubmit={handleVerificationSubmit}>
-            <p className="text-muted small">
-              Enviamos un código de seis dígitos al correo de tu cuenta. Vence en 5 minutos.
-            </p>
-            {verificationError && <div className="alert alert-danger" role="alert">{verificationError}</div>}
-            <Form.Group className="mb-3">
-              <Form.Label>Código de verificación</Form.Label>
-              <Form.Control
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                value={verificationCode}
-                onChange={event => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                required
-              />
-            </Form.Group>
-            <div className="d-flex justify-content-end gap-2">
-              <Button variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
-              <Button variant="primary" type="submit" disabled={loading || verificationCode.length !== 6}>
-                {loading ? 'Verificando...' : 'Verificar y entrar'}
-              </Button>
-            </div>
-          </Form>
-        ) : mode === 'login' ? (
+        {mode === 'login' ? (
           <Form onSubmit={handleLoginSubmit}>
             <p className="text-muted small">Ingresa tus credenciales para acceder a Quorum.</p>
             <Form.Group className="mb-3">

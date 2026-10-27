@@ -23,7 +23,6 @@ router.post('/register', registerValidation, authRateLimit, EmpresaController.re
 router.post('/login', loginValidation, authRateLimit, EmpresaController.login);
 router.post('/reviewer/login', loginValidation, authRateLimit, EmpresaController.reviewerLogin);
 router.post('/admin/login', loginValidation, authRateLimit, EmpresaController.reviewerLogin);
-router.post('/auth/verify', EmpresaController.verifyLoginChallenge);
 router.post('/auth/logout', EmpresaController.logout);
 router.get('/reviewer/empresas', reviewerAuth, EmpresaController.listForReview);
 router.put('/reviewer/empresas/:id', reviewerAuth, EmpresaController.reviewEmpresa);

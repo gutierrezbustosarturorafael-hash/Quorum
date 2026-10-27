@@ -5,8 +5,6 @@ import ApiService from '../services/apiService';
 const ReviewerPanel = () => {
   const [credentials, setCredentials] = useState({ email: '', password: '', adminBootstrapKey: '' });
   const [token, setToken] = useState(false);
-  const [challengeId, setChallengeId] = useState('');
-  const [verificationCode, setVerificationCode] = useState('');
   const [companies, setCompanies] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -22,6 +20,7 @@ const ReviewerPanel = () => {
     try {
       const response = await ApiService.getReviewerCompanies();
       setCompanies(response.data || []);
+      setToken(true);
       setMessage('');
     } catch (error) {
       setToken(null);
@@ -42,35 +41,17 @@ const ReviewerPanel = () => {
     event.preventDefault();
     setLoading(true);
     try {
-      const response = await ApiService.reviewerLogin(
+      await ApiService.reviewerLogin(
         credentials.email,
         credentials.password,
         credentials.adminBootstrapKey
       );
       setCredentials(current => ({ ...current, adminBootstrapKey: '' }));
-      setChallengeId(response.challengeId);
-      setVerificationCode('');
-      setMessage('');
-    } catch (error) {
-      setMessage(error.message || 'No se pudo iniciar sesión. Verifica tus datos.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const verifyCode = async event => {
-    event.preventDefault();
-    setLoading(true);
-    try {
-      await ApiService.verifyLoginChallenge(challengeId, verificationCode);
-      setChallengeId('');
-      setVerificationCode('');
-      setLoadingCompanies(true);
       setToken(true);
       await loadCompanies();
       setMessage('');
     } catch (error) {
-      setMessage(error.message || 'No se pudo verificar el código.');
+      setMessage(error.message || 'No se pudo iniciar sesión. Verifica tus datos.');
     } finally {
       setLoading(false);
     }
@@ -81,8 +62,6 @@ const ReviewerPanel = () => {
       await ApiService.logout('reviewer');
       setToken(false);
       setCompanies([]);
-      setChallengeId('');
-      setVerificationCode('');
       setMessage('');
     } catch (error) {
       setMessage(error.message || 'No se pudo cerrar la sesión.');
@@ -155,39 +134,7 @@ const ReviewerPanel = () => {
             <h1 className="h4 mt-2">Administración y revisión</h1>
             <p className="text-muted small">Solo el administrador autorizado puede revisar solicitudes.</p>
             {message && <Alert variant="danger">{message}</Alert>}
-            {challengeId ? (
-              <Form onSubmit={verifyCode}>
-                <p className="text-muted small">Ingresa el código de seis dígitos enviado al correo de tu cuenta. Vence en 5 minutos.</p>
-                <Form.Control
-                  className="mb-3"
-                  type="text"
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  pattern="[0-9]{6}"
-                  maxLength={6}
-                  aria-label="Código de verificación"
-                  value={verificationCode}
-                  onChange={event => setVerificationCode(event.target.value.replace(/\D/g, '').slice(0, 6))}
-                  required
-                />
-                <Button className="w-100" type="submit" disabled={loading || verificationCode.length !== 6}>
-                  {loading ? 'Verificando...' : 'Verificar y entrar'}
-                </Button>
-                <Button
-                  variant="link"
-                  className="w-100 mt-2"
-                  type="button"
-                  disabled={loading}
-                  onClick={() => {
-                    setChallengeId('');
-                    setVerificationCode('');
-                    setMessage('');
-                  }}
-                >
-                  Volver al inicio de sesión
-                </Button>
-              </Form>
-            ) : <Form onSubmit={login}>
+            <Form onSubmit={login}>
               <Form.Control className="mb-3" type="email" autoComplete="username" placeholder="Correo de tu cuenta empresarial" value={credentials.email} onChange={e => setCredentials({ ...credentials, email: e.target.value })} required />
               <InputGroup className="mb-3">
                 <Form.Control
@@ -220,7 +167,7 @@ const ReviewerPanel = () => {
                 </Form.Text>
               </Form.Group>
               <Button className="w-100" type="submit" disabled={loading}>{loading ? 'Validando...' : 'Entrar al panel'}</Button>
-            </Form>}
+            </Form>
           </Card.Body>
         </Card>
       </div>

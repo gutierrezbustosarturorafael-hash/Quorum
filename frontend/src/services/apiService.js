@@ -92,13 +92,6 @@ class ApiService {
     });
   }
 
-  static async verifyLoginChallenge(challengeId, code) {
-    return this.request('/auth/verify', {
-      method: 'POST',
-      body: JSON.stringify({ challengeId, code })
-    });
-  }
-
   static async logout(type) {
     return this.request('/auth/logout', {
       method: 'POST',

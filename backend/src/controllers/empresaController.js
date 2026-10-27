@@ -356,12 +356,17 @@ class EmpresaController {
 
       const result = await EmpresaModel.createEmpresaCompleta(data);
 
-      const challenge = await authSecurity.sendChallenge('company', {
-        userId: result.id,
+      const token = jwt.sign(
+        { empresaId: result.id, email: String(email).trim().toLowerCase() },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      setSessionCookie(req, res, 'company', token, 7 * 24 * 60 * 60);
+      res.status(201).json({
+        success: true,
         empresaId: result.id,
-        email: String(email).trim().toLowerCase()
+        verificationStatus: 'pendiente'
       });
-      res.status(201).json({ ...challenge, empresaId: result.id, verificationStatus: 'pendiente' });
     } catch (error) {
       console.error('Register error:', error.message);
       if (error.code === 11000) {
@@ -392,12 +397,13 @@ class EmpresaController {
       }
 
       await authSecurity.resetLoginFailures(email);
-      const challenge = await authSecurity.sendChallenge('company', {
-        userId: user.id,
-        empresaId: user.empresa_id,
-        email: user.email
-      });
-      res.json({ ...challenge, empresaId: user.empresa_id });
+      const token = jwt.sign(
+        { empresaId: user.empresa_id, email: user.email },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      setSessionCookie(req, res, 'company', token, 7 * 24 * 60 * 60);
+      res.json({ success: true, empresaId: user.empresa_id });
     } catch (error) {
       console.error('Login error:', error.message);
       if (error.statusCode === 429) res.setHeader('Retry-After', error.retryAfter);
@@ -566,13 +572,14 @@ class EmpresaController {
         subarea,
         verifiedCompanyAccountId: existingCompanyAccount?.empresaId
       });
-      const challenge = await authSecurity.sendChallenge('employee', {
-        userId: employee.id,
-        empresaId: employee.empresaId,
-        email: String(email).trim().toLowerCase()
-      });
+      const token = jwt.sign(
+        { employeeId: employee.id, empresaId: employee.empresaId, email: String(email).trim().toLowerCase(), type: 'employee-account' },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      setSessionCookie(req, res, 'employee', token, 7 * 24 * 60 * 60);
       res.status(201).json({
-        ...challenge,
+        success: true,
         empresaId: employee.empresaId,
         departamentos: employee.departamentos,
         subareasPorDepartamento: employee.subareasPorDepartamento,
@@ -615,13 +622,14 @@ class EmpresaController {
         return res.status(401).json({ success: false, message: 'Correo o contraseña incorrectos.' });
       }
       await authSecurity.resetLoginFailures(email);
-      const challenge = await authSecurity.sendChallenge('employee', {
-        userId: employee.id,
-        empresaId: employee.empresaId,
-        email: employee.email
-      });
+      const token = jwt.sign(
+        { employeeId: employee.id, empresaId: employee.empresaId, email: employee.email, type: 'employee-account' },
+        process.env.JWT_SECRET,
+        { expiresIn: '7d' }
+      );
+      setSessionCookie(req, res, 'employee', token, 7 * 24 * 60 * 60);
       res.json({
-        ...challenge,
+        success: true,
         empresaId: employee.empresaId,
         profileComplete: employee.profileComplete,
         missingProfileFields: employee.missingProfileFields
@@ -1890,7 +1898,6 @@ class EmpresaController {
       }
       await authSecurity.resetLoginFailures(email);
       let isAdministrator = await EmpresaModel.isAdministratorAccount(user.id);
-      let claimAdministrator = false;
       if (!isAdministrator && !await EmpresaModel.hasAdministratorAccount()) {
         const suppliedKey = Buffer.from(String(adminBootstrapKey || ''), 'utf8');
         const configuredKey = Buffer.from(String(process.env.ADMIN_BOOTSTRAP_KEY || ''), 'utf8');
@@ -1909,19 +1916,20 @@ class EmpresaController {
             message: 'Ingresa la clave de configuración inicial para habilitar esta cuenta como administradora.'
           });
         }
-        claimAdministrator = true;
+        isAdministrator = await EmpresaModel.claimFirstAdministrator(user.id);
       }
-      if (!isAdministrator && !claimAdministrator) {
+      if (!isAdministrator) {
         console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
         return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
       }
-      const challenge = await authSecurity.sendChallenge('reviewer', {
-        userId: user.id,
-        empresaId: user.empresa_id,
-        email: user.email,
-        claimAdministrator
-      });
-      return res.json(challenge);
+      const token = jwt.sign(
+        { usuarioId: user.id, email: user.email, role: 'administrator' },
+        process.env.JWT_SECRET,
+        { expiresIn: '8h' }
+      );
+      setSessionCookie(req, res, 'reviewer', token, 8 * 60 * 60);
+      console.log(`Reviewer login correcto para ${user.email}`);
+      return res.json({ success: true });
     } catch (error) {
       console.error('Reviewer login error:', error.message);
       if (error.statusCode === 429) res.setHeader('Retry-After', error.retryAfter);
@@ -1929,76 +1937,6 @@ class EmpresaController {
         success: false,
         message: error.statusCode ? error.message : 'No se pudo iniciar el panel administrativo'
       });
-    }
-  }
-
-  static async verifyLoginChallenge(req, res) {
-    try {
-      const challenge = await authSecurity.verifyChallenge(
-        req.body?.challengeId,
-        req.body?.code,
-        req.ip
-      );
-      let token;
-      let maxAgeSeconds;
-      let cookieType;
-      let session = {};
-      if (challenge.accountType === 'company') {
-        const user = await EmpresaModel.verifyUser(challenge.email);
-        if (!user || String(user.id) !== challenge.userId
-          || String(user.empresa_id) !== challenge.empresaId) {
-          return res.status(401).json({ success: false, message: 'La cuenta ya no está disponible.' });
-        }
-        token = jwt.sign(
-          { empresaId: challenge.empresaId, email: challenge.email },
-          process.env.JWT_SECRET,
-          { expiresIn: '7d' }
-        );
-        maxAgeSeconds = 7 * 24 * 60 * 60;
-        cookieType = 'company';
-        session.empresaId = challenge.empresaId;
-      } else if (challenge.accountType === 'employee') {
-        const employee = await EmpresaModel.verifyEmpleado(challenge.email);
-        if (!employee || String(employee.id) !== challenge.userId
-          || String(employee.empresaId) !== challenge.empresaId) {
-          return res.status(401).json({ success: false, message: 'La cuenta ya no está disponible.' });
-        }
-        token = jwt.sign(
-          { employeeId: employee.id, empresaId: employee.empresaId, email: employee.email, type: 'employee-account' },
-          process.env.JWT_SECRET,
-          { expiresIn: '7d' }
-        );
-        maxAgeSeconds = 7 * 24 * 60 * 60;
-        cookieType = 'employee';
-        session = {
-          empresaId: employee.empresaId,
-          profileComplete: employee.profileComplete,
-          missingProfileFields: employee.missingProfileFields
-        };
-      } else {
-        const isAdministrator = challenge.claimAdministrator
-          ? await EmpresaModel.claimFirstAdministrator(challenge.userId)
-          : await EmpresaModel.isAdministratorAccount(challenge.userId);
-        if (!isAdministrator) {
-          return res.status(403).json({ success: false, message: 'La cuenta ya no tiene acceso administrativo.' });
-        }
-        token = jwt.sign(
-          { usuarioId: challenge.userId, email: challenge.email, role: 'administrator' },
-          process.env.JWT_SECRET,
-          { expiresIn: '8h' }
-        );
-        maxAgeSeconds = 8 * 60 * 60;
-        cookieType = 'reviewer';
-      }
-      setSessionCookie(req, res, cookieType, token, maxAgeSeconds);
-      return res.json({ success: true, ...session });
-    } catch (error) {
-      if (error.statusCode) {
-        if (error.statusCode === 429) res.setHeader('Retry-After', error.retryAfter);
-        return res.status(error.statusCode).json({ success: false, message: error.message });
-      }
-      console.error('Login challenge verification error:', error.message);
-      return res.status(500).json({ success: false, message: 'No se pudo verificar el código.' });
     }
   }
 

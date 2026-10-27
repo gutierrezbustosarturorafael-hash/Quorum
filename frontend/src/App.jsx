@@ -185,6 +185,12 @@ function OrganizerApp() {
       } else {
         response = await ApiService.login(data.email, data.password);
       }
+      if (response.success) {
+        if (!await loadData()) {
+          throw new Error('No se pudo cargar la sesión. Intenta iniciar sesión de nuevo.');
+        }
+        setShowAuthModal(false);
+      }
       return response;
     } catch (error) {
       console.error('Auth error:', error);
@@ -193,14 +199,6 @@ function OrganizerApp() {
         : (error.message || 'Error en autenticacion');
       alert(supportMessage);
     }
-  };
-
-  const handleVerifyAuth = async (challengeId, code) => {
-    await ApiService.verifyLoginChallenge(challengeId, code);
-    if (!await loadData()) {
-      throw new Error('No se pudo cargar la sesión. Intenta iniciar sesión de nuevo.');
-    }
-    setShowAuthModal(false);
   };
 
   const handleLogout = async () => {
@@ -432,7 +430,6 @@ function OrganizerApp() {
             onModeChange={setAuthMode}
             onClose={() => setShowAuthModal(false)}
             onSuccess={handleAuth}
-            onVerify={handleVerifyAuth}
           />
         </Suspense>
       )}
