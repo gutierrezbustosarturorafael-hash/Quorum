@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Row, Col, Card, Button, Form, Alert } from 'react-bootstrap';
 import { Download } from 'lucide-react';
 import ApiService from '../services/apiService';
+import { normalizeMeetingStatus } from '../utils/meetingStatus';
 import RisingLines from './RisingLines';
 import CompanyOrganizationChart from './CompanyOrganizationChart';
 
@@ -57,9 +58,9 @@ const Dashboard = ({ companyData, setCompanyData, fodaData, setFodaData, reunion
   const proximasReuniones = [...(reuniones || [])]
     .filter(reunion => {
       if (!reunion.fecha) return false;
-      const status = String(reunion.status || reunion.estado || '').toLowerCase();
+      const status = normalizeMeetingStatus(reunion.status || reunion.estado);
       const meetingTime = new Date(`${reunion.fecha}T${reunion.hora || '00:00'}`).getTime();
-      return !['completada', 'finalizada', 'completed'].includes(status)
+      return status !== 'finalizada'
         && Number.isFinite(meetingTime)
         && meetingTime >= Date.now();
     })

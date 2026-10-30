@@ -1,0 +1,123 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const crypto = require('crypto');
+const fs = require('fs/promises');
+const path = require('path');
+const os = require('os');
+const mongoose = require('mongoose');
+
+// No dotenv and no fallback to MONGODB_URI. Only a local disposable database is accepted.
+test('two-company meeting lifecycle, invitations, uploads, personal resources and atomic admin claim', { skip: !process.env.TEST_MONGODB_URI, timeout: 60000 }, async t => {
+  const uri = new URL(process.env.TEST_MONGODB_URI);
+  assert.equal(uri.protocol, 'mongodb:');
+  assert.ok(['127.0.0.1', 'localhost', '[::1]'].includes(uri.hostname), 'Only isolated local MongoDB allowed');
+  const databaseName = 'quorum_test_' + crypto.randomBytes(12).toString('hex');
+  process.env.JWT_SECRET = 'dummy-integration-secret-at-least-32-characters';
+  process.env.UPLOADS_DIR = await fs.mkdtemp(path.join(os.tmpdir(), 'quorum-files-test-'));
+  process.env.NODE_ENV = 'test';
+  const Model = require('../../src/models/empresaModel');
+  const Controller = require('../../src/controllers/empresaController');
+  const email = require('../../src/services/emailService');
+  const security = require('../../src/services/authSecurity');
+  const files = require('../../src/services/fileMaintenance');
+  await mongoose.connect(process.env.TEST_MONGODB_URI, { dbName: databaseName, autoIndex: false, autoCreate: false, serverSelectionTimeoutMS: 5000 });
+  t.after(async () => {
+    t.mock.restoreAll();
+    if (mongoose.connection.name === databaseName && databaseName.startsWith('quorum_test_')) await mongoose.connection.dropDatabase();
+    await mongoose.disconnect();
+    await fs.rm(process.env.UPLOADS_DIR, { recursive: true, force: true });
+  });
+  await security.initializeAuthSecurity();
+  assert.ok((await mongoose.model('AuthRateLimit').collection.indexes()).some(index => index.expireAfterSeconds === 0 && index.key.expiresAt === 1));
+  const Company = mongoose.model('Empresa');
+  const Employee = mongoose.model('Empleado');
+  const Meeting = mongoose.model('Reunion');
+  const createCompany = suffix => Company.create({ nombre: 'Empresa ' + suffix, razonSocial: 'Fixture ' + suffix, rfc: 'TEST' + suffix, representanteLegal: 'Persona', telefonoContacto: '5555555555', mision: 'Fixture', vision: 'Fixture', departamentos: ['Ventas'], verificacion: { estado: 'aprobada' }, directivos: [{ nombre: 'Directivo ' + suffix, email: 'director' + suffix + '@example.test', area: 'Ventas' }] });
+  const a = await createCompany('A'), b = await createCompany('B');
+  const ea = await Employee.create({ empresaId: a._id, email: 'a@example.test', nombre: 'A', area: 'Ventas', rol: 'trabajador' });
+  const eb = await Employee.create({ empresaId: b._id, email: 'b@example.test', nombre: 'B', area: 'Ventas', rol: 'trabajador' });
+  const sessions = require('../../src/services/sessions');
+  const jwt = require('jsonwebtoken');
+  const { COOKIE_NAMES } = require('../../src/utils/authCookies');
+  await sessions.initializeSessions();
+  assert.ok((await mongoose.model('AuthSession').collection.indexes()).some(index => index.expireAfterSeconds === 0));
+  const account = await mongoose.model('Usuario').create({ empresaId: a._id, email: 'organizer@example.test', passwordHash: 'dummy-hash' });
+  const sessionClaims = { empresaId: String(a._id), email: account.email };
+  const firstToken = await sessions.issueSession('company', sessionClaims, 600, account.passwordHash);
+  const firstPayload = jwt.verify(firstToken, process.env.JWT_SECRET);
+  assert.ok(await sessions.validateSession(firstPayload, 'company'));
+  await sessions.revokeSession({ headers: { cookie: COOKIE_NAMES.company + '=' + firstToken } }, 'company');
+  await assert.rejects(sessions.validateSession(firstPayload, 'company'), { statusCode: 401 });
+  const secondToken = await sessions.issueSession('company', sessionClaims, 600, account.passwordHash);
+  const secondPayload = jwt.verify(secondToken, process.env.JWT_SECRET);
+  await mongoose.model('Usuario').updateOne({ _id: account._id }, { $set: { passwordHash: 'changed-hash' } });
+  await assert.rejects(sessions.validateSession(secondPayload, 'company'), { statusCode: 401 });
+  const thirdPayload = jwt.verify(await sessions.issueSession('company', sessionClaims, 600, 'changed-hash'), process.env.JWT_SECRET);
+  await Company.updateOne({ _id: a._id }, { $set: { 'verificacion.estado': 'suspendida' } });
+  await assert.rejects(sessions.validateSession(thirdPayload, 'company'), { statusCode: 403 });
+  await assert.rejects(sessions.issueSession('company', sessionClaims, 600, 'changed-hash'), { statusCode: 403 });
+  await Company.updateOne({ _id: a._id }, { $set: { 'verificacion.estado': 'aprobada' } });
+  await mongoose.model('AuthSession').updateOne({ _id: thirdPayload.sid }, { $set: { expiresAt: new Date(0) } });
+  await assert.rejects(sessions.validateSession(thirdPayload, 'company'), { statusCode: 401 });
+  assert.equal(await Model.getEmpleadoProfile(a._id, eb._id), null);
+  await assert.rejects(Model.completeEmpleadoProfile(a._id, eb._id, {}), { statusCode: 404 });
+  const draft = { titulo: 'Revision mensual', fecha: '2030-01-01', hora: '10:00', agenda: ['Avances', 'Acuerdos'], departamentos: ['Ventas'], empleadosInvitados: [ea._id], directivosSeleccionados: [a.directivos[0]._id], cronograma: [{ area: 'Ventas', tiempo: '00:15' }] };
+  await assert.rejects(Model.createReunion(a._id, { ...draft, empleadosInvitados: [eb._id] }));
+  await assert.rejects(Model.createReunion(a._id, { ...draft, directivosSeleccionados: [b.directivos[0]._id] }), { statusCode: 400 });
+  t.mock.method(Model, 'getSmtpCredentials', async () => ({ email: 'dummy@example.test', password: 'dummy' }));
+  const mail = t.mock.method(email, 'sendConvocatoria', async (meeting, name, recipients) => {
+    assert.ok(recipients.some(person => person.email === ea.email));
+    assert.ok(recipients.every(person => person.email !== eb.email));
+    return { success: true };
+  });
+  const res = { statusCode: 200, status(code) { this.statusCode = code; return this; }, json(body) { this.body = body; return this; } };
+  await Controller.createReunion({ user: { empresaId: a._id }, body: draft }, res);
+  assert.equal(res.statusCode, 201);
+  assert.equal(res.body.convocatoriaEnviada, true);
+  assert.equal(mail.mock.callCount(), 1);
+  const id = res.body.data._id;
+  assert.deepEqual(res.body.data.agenda.toObject(), draft.agenda);
+  assert.equal((await Meeting.findById(id)).convocatoriaEnviada, true);
+  for (const action of [
+    () => Model.updateReunion(b._id, id, { minuta: 'foreign' }),
+    () => Model.createSeguimiento(b._id, id, { titulo: 'foreign', fecha: '2030-02-01', hora: '12:00' }),
+    () => Model.addReunionDocumento(b._id, id, { area: 'Ventas', nombreArchivo: 'foreign.pdf' }),
+    () => Model.deleteReunion(b._id, id)
+  ]) await assert.rejects(action(), { statusCode: 404 });
+  const filePath = path.join(process.env.UPLOADS_DIR, 'reuniones', String(id), 'fixture.pdf');
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
+  await fs.writeFile(filePath, 'dummy fixture');
+  const url = '/uploads/reuniones/' + id + '/fixture.pdf';
+  const doc = await Model.addReunionDocumento(a._id, id, { area: 'Ventas', nombreArchivo: 'fixture.pdf', tipo: 'PDF', url });
+  assert.ok(doc._id);
+  await files.removeStoredFile(filePath);
+  assert.ok(await fs.stat(filePath)); // Still referenced: must not move.
+  await assert.rejects(Model.getReunionDocumento(b._id, id, doc._id), { statusCode: 404 });
+  await assert.rejects(Model.createSeguimiento(a._id, id, { titulo: 'Bad', fecha: '2030-02-01', hora: '12:00', documentos: [{ _id: new mongoose.Types.ObjectId(), url: '/uploads/planes/foreign.pdf' }] }), { statusCode: 400 });
+  const follow = await Model.createSeguimiento(a._id, id, { titulo: 'Seguimiento', fecha: '2030-02-01', hora: '12:00', documentos: [doc.toObject()] });
+  await Model.updateSeguimiento(a._id, id, follow._id, { status: 'en-progreso', minuta: 'Revision de seguimiento' });
+  await assert.rejects(Model.updateSeguimiento(b._id, id, follow._id, { minuta: 'foreign' }), { statusCode: 404 });
+  await Model.updateReunion(a._id, id, { status: 'completada', minuta: 'Minuta final', acuerdos: [{ descripcion: 'Entregar informe', responsable: 'Persona A', fechaCompromiso: '2030-01-05' }] });
+  const saved = await Meeting.findById(id);
+  assert.equal(saved.status, 'finalizada'); assert.equal(saved.estado, 'finalizada');
+  assert.equal(saved.minuta, 'Minuta final'); assert.equal(saved.acuerdos[0].responsable, 'Persona A');
+  assert.equal(saved.acuerdos[0].fechaCompromiso, '2030-01-05');
+  assert.equal(saved.seguimientos[0].status, 'en_curso');
+  await assert.rejects(Model.addReunionDocumento(a._id, id, { area: 'Ventas', nombreArchivo: 'late.pdf' }), { statusCode: 409 });
+  const personal = await Model.createEmployeePersonalMeeting(a._id, ea._id, { titulo: 'Personal', fecha: '2030-01-01', hora: '09:00' });
+  await assert.rejects(Model.updateEmployeePersonalMeeting(b._id, eb._id, personal._id, { titulo: 'foreign' }), { statusCode: 404 });
+  await assert.rejects(Model.deleteEmployeePersonalMeeting(a._id, eb._id, personal._id), { statusCode: 404 });
+  const objective = await Model.createEmployeePersonalObjective(a._id, ea._id, 'Ventas', { nombre: 'Meta' }, 'organizador');
+  await assert.rejects(Model.updateEmployeePersonalObjective(b._id, eb._id, objective._id, { progreso: 100 }), { statusCode: 404 });
+  await assert.rejects(Model.deleteEmployeePersonalObjective(a._id, eb._id, objective._id), { statusCode: 404 });
+  const users = [new mongoose.Types.ObjectId(), new mongoose.Types.ObjectId()];
+  const claims = await Promise.all(users.map(user => Model.claimFirstAdministrator(user)));
+  assert.equal(claims.filter(Boolean).length, 1);
+  assert.equal(await mongoose.model('AdministradorConfig').countDocuments(), 1);
+  for (let i = 0; i < 5; i++) await security.enforceAuthLimits({ ip: '192.0.2.1', path: '/login' }, 'limit@example.test');
+  await assert.rejects(security.enforceAuthLimits({ ip: '192.0.2.1', path: '/login' }, ' LIMIT@example.test '), { statusCode: 429 });
+  await Model.deleteReunion(a._id, id);
+  await files.removeStoredFile(filePath);
+  await assert.rejects(fs.stat(filePath), { code: 'ENOENT' });
+  assert.ok((await fs.readdir(path.join(process.env.UPLOADS_DIR, '.trash'))).length);
+});

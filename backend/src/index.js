@@ -5,11 +5,11 @@ const fs = require('fs');
 const http = require('http');
 const https = require('https');
 const path = require('path');
-const jwt = require('jsonwebtoken');
 const { connectDB } = require('./config/database');
 const empresaRoutes = require('./routes/empresaRoutes');
 const { startWeeklyMeetingScheduler } = require('./services/weeklyMeetingScheduler');
 
+const { uploadsRoot, initializeUploads } = require('./config/uploads');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -53,10 +53,7 @@ if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
 
 // Orígenes explícitamente permitidos
 const allowedOrigins = [
-  'http://localhost:3000',
-  'http://127.0.0.1:3000',
-  'http://localhost:5173',
-  'http://127.0.0.1:5173',
+  ...(!isProduction ? ['http://localhost:3000', 'http://127.0.0.1:3000', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
   process.env.FRONTEND_URL
 ].filter(Boolean);
 
@@ -96,31 +93,10 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '256kb' }));
 app.use(express.urlencoded({ extended: true }));
 
-app.use('/api', (req, res, next) => {
-  const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
-  const origin = req.get('Origin');
-  if (isMutation && (req.get('X-Quorum-Request') !== '1'
-    || (origin && !allowedOrigins.includes(origin)))) {
-    return res.status(403).json({ success: false, message: 'La solicitud no pasó la verificación de origen.' });
-  }
-  next();
-});
+app.use('/api', (req, res, next) => { res.setHeader('Cache-Control', 'private, no-store'); next(); });
+app.use('/api', require('./middleware/csrf')(allowedOrigins));
 
-app.use('/uploads', (req, res, next) => {
-  try {
-    const access = jwt.verify(req.query.access, process.env.JWT_SECRET);
-    const requestedFile = `/uploads${req.path}`;
-    if (!['meeting-file', 'private-file'].includes(access.type) || access.filePath !== requestedFile) {
-      return res.status(403).json({ success: false, message: 'No tienes acceso a este documento.' });
-    }
-    next();
-  } catch (error) {
-    return res.status(401).json({ success: false, message: 'El enlace del documento venció o no es válido. Vuelve a abrirlo desde Quorum.' });
-  }
-}, express.static(path.join(__dirname, '..', 'uploads'), {
-  etag: true,
-  maxAge: '1d'
-}));
+app.use('/uploads', require('./middleware/fileAccess'), express.static(uploadsRoot, { etag: false, cacheControl: false, dotfiles: 'deny' }));
 
 // Rutas
 app.use('/api', empresaRoutes);
@@ -139,7 +115,7 @@ app.use((error, req, res, next) => {
   if (res.headersSent) {
     return next(error);
   }
-
+ 
   const status = error.statusCode || error.status || (error.code === 'LIMIT_FILE_SIZE' ? 413 : 500);
   const message = error.code === 'LIMIT_FILE_SIZE'
     ? 'El archivo supera el límite de 15 MB. Reduce su tamaño e inténtalo nuevamente.'
@@ -156,6 +132,7 @@ app.use((error, req, res, next) => {
 // Iniciar servidor
 const startServer = async () => {
   try {
+    await initializeUploads();
     await connectDB();
     startWeeklyMeetingScheduler();
     const server = httpsKeyPath
@@ -180,6 +157,7 @@ const startServer = async () => {
   } catch (error) {
     console.error(' Failed to start server:', error.message);
     process.exit(1);
+    
   }
 };
 

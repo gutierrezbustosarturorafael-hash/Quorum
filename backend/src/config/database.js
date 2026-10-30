@@ -13,6 +13,7 @@ const readNonNegativeInteger = (name, fallback) => {
 
 const connectDB = async () => {
   try {
+    if (process.env.NODE_ENV === 'production' && !process.env.MONGODB_URI) throw new Error('MONGODB_URI es obligatoria en produccion.');
     const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/sistema_gestion';
     mongoose.set('strictQuery', true);
     mongoose.set('autoIndex', process.env.NODE_ENV !== 'production');
@@ -27,6 +28,8 @@ const connectDB = async () => {
       retryWrites: true
     });
     await initializeAuthSecurity();
+    await require('../services/sessions').initializeSessions();
+    await require('../middleware/uploadBudget').initialize();
     console.log(` MongoDB Connected: ${conn.connection.host}`);
     console.log(` Database: ${conn.connection.name}`);
 

@@ -7,15 +7,18 @@ const path = require('path');
 const crypto = require('crypto');
 const mongoose = require('mongoose');
 const { validateEncryptionKey } = require('../utils/smtpCredentials');
-const { extractSpreadsheetInsights, readSpreadsheetInsights } = require('../utils/spreadsheetInsights');
+const { processSpreadsheet } = require('../services/spreadsheetProcessing');
 const { moveUploadedFile } = require('../utils/uploadFiles');
+const { uploadsRoot } = require('../config/uploads');
+const { removeStoredFile } = require('../services/fileMaintenance');
 const resolveStoredMeetingDocumentPath = require('../utils/meetingDocumentPath');
 const authSecurity = require('../services/authSecurity');
+const sessions = require('../services/sessions');
 const { setSessionCookie, clearSessionCookies } = require('../utils/authCookies');
 
 const getStoredMeetingDocumentPath = documento => {
-  const uploadsRoot = path.resolve(__dirname, '..', '..', 'uploads', 'reuniones');
-  return resolveStoredMeetingDocumentPath(documento.url, uploadsRoot);
+  const meetingsRoot = path.resolve(uploadsRoot, 'reuniones');
+  return resolveStoredMeetingDocumentPath(documento.url, meetingsRoot);
 };
 
 const normalizeArea = value => String(value || '').trim().toLowerCase()
@@ -89,15 +92,15 @@ const sendMeetingInvitation = async (empresaId, reunion) => {
   }
 };
 
-const protectDocument = (documento, empresaId) => {
+const protectDocument = (documento, empresaId, sid) => {
   const plainDocument = typeof documento?.toObject === 'function'
     ? documento.toObject()
     : documento;
   if (!plainDocument?.url?.startsWith('/uploads/')) return plainDocument;
   const accessToken = jwt.sign(
-    { type: 'meeting-file', empresaId: String(empresaId), filePath: plainDocument.url },
+    { type: 'meeting-file', empresaId: String(empresaId), filePath: plainDocument.url, sid },
     process.env.JWT_SECRET,
-    { expiresIn: '12h' }
+    { expiresIn: '15m', algorithm: 'HS256' }
   );
   return {
     ...plainDocument,
@@ -105,14 +108,14 @@ const protectDocument = (documento, empresaId) => {
   };
 };
 
-const protectMeetingDocuments = (reunion, empresaId) => {
+const protectMeetingDocuments = (reunion, empresaId, sid) => {
   const plainMeeting = typeof reunion?.toObject === 'function' ? reunion.toObject() : reunion;
   return {
     ...plainMeeting,
-    documentos: (plainMeeting.documentos || []).map(documento => protectDocument(documento, empresaId)),
+    documentos: (plainMeeting.documentos || []).map(documento => protectDocument(documento, empresaId, sid)),
     seguimientos: (plainMeeting.seguimientos || []).map(seguimiento => ({
       ...seguimiento,
-      documentos: (seguimiento.documentos || []).map(documento => protectDocument(documento, empresaId))
+      documentos: (seguimiento.documentos || []).map(documento => protectDocument(documento, empresaId, sid))
     }))
   };
 };
@@ -356,11 +359,7 @@ class EmpresaController {
 
       const result = await EmpresaModel.createEmpresaCompleta(data);
 
-      const token = jwt.sign(
-        { empresaId: result.id, email: String(email).trim().toLowerCase() },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const token = await sessions.issueSession('company', { empresaId: result.id, email: String(email).trim().toLowerCase() }, 604800, passwordHash);
       setSessionCookie(req, res, 'company', token, 7 * 24 * 60 * 60);
       res.status(201).json({
         success: true,
@@ -397,11 +396,7 @@ class EmpresaController {
       }
 
       await authSecurity.resetLoginFailures(email);
-      const token = jwt.sign(
-        { empresaId: user.empresa_id, email: user.email },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const token = await sessions.issueSession('company', { empresaId: user.empresa_id, email: user.email }, 604800, user.password_hash);
       setSessionCookie(req, res, 'company', token, 7 * 24 * 60 * 60);
       res.json({ success: true, empresaId: user.empresa_id });
     } catch (error) {
@@ -455,11 +450,11 @@ class EmpresaController {
         data: {
           ...data,
           objetivos: hideSubareaObjectives(data.objetivos || [], data.directivos || [], empleados),
-          reuniones: data.reuniones.map(reunion => protectMeetingDocuments(reunion, empresaId)),
+          reuniones: data.reuniones.map(reunion => protectMeetingDocuments(reunion, empresaId, req.user.sid)),
           empleados,
           organigrama,
           codigoInvitacion,
-          planEstrategico: protectDocument(data.empresa?.planEstrategico, empresaId)
+          planEstrategico: protectDocument(data.empresa?.planEstrategico, empresaId, req.user.sid)
         }
       });
     } catch (error) {
@@ -572,11 +567,7 @@ class EmpresaController {
         subarea,
         verifiedCompanyAccountId: existingCompanyAccount?.empresaId
       });
-      const token = jwt.sign(
-        { employeeId: employee.id, empresaId: employee.empresaId, email: String(email).trim().toLowerCase(), type: 'employee-account' },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const token = await sessions.issueSession('employee', { employeeId: employee.id, empresaId: employee.empresaId, email: String(email).trim().toLowerCase(), type: 'employee-account' }, 604800, passwordHash);
       setSessionCookie(req, res, 'employee', token, 7 * 24 * 60 * 60);
       res.status(201).json({
         success: true,
@@ -622,11 +613,7 @@ class EmpresaController {
         return res.status(401).json({ success: false, message: 'Correo o contraseña incorrectos.' });
       }
       await authSecurity.resetLoginFailures(email);
-      const token = jwt.sign(
-        { employeeId: employee.id, empresaId: employee.empresaId, email: employee.email, type: 'employee-account' },
-        process.env.JWT_SECRET,
-        { expiresIn: '7d' }
-      );
+      const token = await sessions.issueSession('employee', { employeeId: employee.id, empresaId: employee.empresaId, email: employee.email, type: 'employee-account' }, 604800, employee.passwordHash);
       setSessionCookie(req, res, 'employee', token, 7 * 24 * 60 * 60);
       res.json({
         success: true,
@@ -651,7 +638,7 @@ class EmpresaController {
       }
       const [company, profile] = await Promise.all([
         EmpresaModel.getEmployeePortalData(req.user.empresaId),
-        EmpresaModel.getEmpleadoProfile(req.user.employeeId)
+        EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId)
       ]);
       if (!company) {
         return res.status(404).json({ success: false, message: 'No se encontró la empresa para este portal.' });
@@ -662,22 +649,22 @@ class EmpresaController {
       const missingProfileFields = EmpresaModel.getMissingEmployeeProfileFields(profile);
       const profileComplete = missingProfileFields.length === 0;
       const [indicadoresArea, meetings, reunionesPersonales, indicadoresPersonales, indicadoresEquipo] = await Promise.all([
-        EmpresaModel.getEmployeeAreaObjectives(req.user.empresaId, profile),
+        profileComplete ? EmpresaModel.getEmployeeAreaObjectives(req.user.empresaId, profile) : Promise.resolve([]),
         profileComplete
           ? EmpresaModel.getEmployeeMeetings(req.user.empresaId, profile)
           : Promise.resolve([]),
         EmpresaModel.getEmployeePersonalMeetings(req.user.empresaId, req.user.employeeId),
         EmpresaModel.getEmployeePersonalObjectives(req.user.empresaId, req.user.employeeId),
-        EmpresaModel.getEmployeeTeamObjectives(req.user.empresaId, profile)
+        profileComplete ? EmpresaModel.getEmployeeTeamObjectives(req.user.empresaId, profile) : Promise.resolve([])
       ]);
       res.json({
         success: true,
         data: {
           empresa: company.empresa,
-          organigrama: company.organigrama,
+          organigrama: profileComplete ? await EmpresaModel.getCompanyOrganizationChart(req.user.empresaId) : [],
           reuniones: meetings.map(meeting => ({
             ...meeting,
-            documentos: (meeting.documentos || []).map(documento => protectDocument(documento, req.user.empresaId))
+            documentos: (meeting.documentos || []).map(documento => protectDocument(documento, req.user.empresaId, req.user.sid))
           })),
           reunionesPersonales,
           indicadoresPersonales,
@@ -698,7 +685,7 @@ class EmpresaController {
     try {
       const data = req.body || {};
       validateEmployeePersonalMeeting(data);
-      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
@@ -762,7 +749,7 @@ class EmpresaController {
 
   static async getEmployeePersonalObjectives(req, res) {
     try {
-      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
@@ -795,7 +782,7 @@ class EmpresaController {
   static async createEmployeePersonalObjective(req, res) {
     try {
       validateEmployeePersonalObjective(req.body || {});
-      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
@@ -866,7 +853,7 @@ class EmpresaController {
       if (!mongoose.isValidObjectId(req.params.employeeId)) {
         return res.status(400).json({ success: false, message: 'El identificador del colaborador no es válido.' });
       }
-      const profile = await EmpresaModel.getEmpleadoProfile(req.params.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.params.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(404).json({ success: false, message: 'No se encontró a esa persona en el directorio de la empresa.' });
       }
@@ -884,7 +871,7 @@ class EmpresaController {
         return res.status(400).json({ success: false, message: 'El identificador del colaborador no es válido.' });
       }
       validateEmployeePersonalObjective(req.body || {});
-      const profile = await EmpresaModel.getEmpleadoProfile(req.params.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.params.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(404).json({ success: false, message: 'No se encontró a esa persona en el directorio de la empresa.' });
       }
@@ -955,7 +942,7 @@ class EmpresaController {
       if (!req.user.employeeId) {
         return res.status(403).json({ success: false, message: 'Este acceso no tiene una cuenta de colaborador para completar.' });
       }
-      const profile = await EmpresaModel.completeEmpleadoProfile(req.user.employeeId, req.body || {});
+      const profile = await EmpresaModel.completeEmpleadoProfile(req.user.empresaId, req.user.employeeId, req.body || {});
       res.json({ success: true, data: profile });
     } catch (error) {
       console.error('Employee profile completion error:', error.message);
@@ -1068,7 +1055,7 @@ class EmpresaController {
       const currentPlan = await EmpresaModel.getStrategicPlan(empresaId);
       const extension = path.extname(req.file.originalname).toLowerCase();
       const safeName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}${extension}`;
-      const directory = path.join(__dirname, '..', '..', 'uploads', 'planes', empresaId);
+      const directory = path.join(uploadsRoot, 'planes', empresaId);
       await fs.promises.mkdir(directory, { recursive: true });
       savedFilePath = path.join(directory, safeName);
       await moveUploadedFile(req.file, savedFilePath);
@@ -1080,11 +1067,11 @@ class EmpresaController {
       savedFilePath = '';
       const oldUrl = currentPlan?.url;
       if (oldUrl && oldUrl !== planEstrategico.url) {
-        const uploadRoot = path.resolve(__dirname, '..', '..', 'uploads');
+        const uploadRoot = uploadsRoot;
         const oldFilePath = path.resolve(uploadRoot, oldUrl.replace(/^\/uploads\/?/, ''));
         if (oldFilePath.startsWith(`${uploadRoot}${path.sep}`)) {
           try {
-            await fs.promises.unlink(oldFilePath);
+            await removeStoredFile(oldFilePath);
           } catch (cleanupError) {
             if (cleanupError.code !== 'ENOENT') {
               console.error('Could not remove replaced strategic plan:', cleanupError.message);
@@ -1094,11 +1081,11 @@ class EmpresaController {
       }
       res.status(201).json({
         success: true,
-        data: protectDocument(planEstrategico, empresaId)
+        data: protectDocument(planEstrategico, empresaId, req.user.sid)
       });
     } catch (error) {
       if (savedFilePath) {
-        await fs.promises.unlink(savedFilePath).catch(cleanupError => {
+        await removeStoredFile(savedFilePath).catch(cleanupError => {
           if (cleanupError.code !== 'ENOENT') {
             console.error('Strategic plan cleanup error:', cleanupError.message);
           }
@@ -1294,7 +1281,7 @@ class EmpresaController {
       if (!['.xlsx', '.xls', '.xlsb'].includes(extension)) {
         return res.status(400).json({ success: false, message: 'Solo puedes subir hojas de cálculo Excel (.xlsx, .xls o .xlsb).' });
       }
-      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
@@ -1303,7 +1290,7 @@ class EmpresaController {
         profile,
         req.params.id
       );
-      const directory = path.join(__dirname, '..', '..', 'uploads', 'reuniones', String(reunion._id));
+      const directory = path.join(uploadsRoot, 'reuniones', String(reunion._id));
       await fs.promises.mkdir(directory, { recursive: true });
       const safeName = `${Date.now()}-${crypto.randomBytes(8).toString('hex')}${extension}`;
       savedFilePath = path.join(directory, safeName);
@@ -1322,13 +1309,13 @@ class EmpresaController {
       savedFilePath = '';
       res.status(201).json({
         success: true,
-        data: protectDocument(documento, req.user.empresaId),
+        data: protectDocument(documento, req.user.empresaId, req.user.sid),
         message: 'El Excel se agregó a los documentos de tu área para esta reunión.'
       });
     } catch (error) {
       if (savedFilePath) {
         try {
-          await fs.promises.unlink(savedFilePath);
+          await removeStoredFile(savedFilePath);
         } catch (cleanupError) {
           if (cleanupError.code !== 'ENOENT') {
             console.error('Employee spreadsheet cleanup error:', cleanupError.message);
@@ -1353,7 +1340,7 @@ class EmpresaController {
           message: 'El identificador de la reunión o del documento no es válido.'
         });
       }
-      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({
           success: false,
@@ -1369,7 +1356,7 @@ class EmpresaController {
       if (documento.url) {
         const filePath = getStoredMeetingDocumentPath(documento);
         try {
-          await fs.promises.unlink(filePath);
+          await removeStoredFile(filePath);
         } catch (error) {
           if (error.code !== 'ENOENT') throw error;
         }
@@ -1391,7 +1378,7 @@ class EmpresaController {
       if (!mongoose.isValidObjectId(req.params.id) || !mongoose.isValidObjectId(req.params.documentId)) {
         return res.status(400).json({ success: false, message: 'El identificador de la reunión o del documento no es válido.' });
       }
-      const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+      const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId);
       if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
         return res.status(403).json({ success: false, message: 'No se encontró tu cuenta de colaborador. Inicia sesión de nuevo.' });
       }
@@ -1405,7 +1392,7 @@ class EmpresaController {
       if (!fs.existsSync(filePath)) {
         return res.status(404).json({ success: false, message: 'El archivo Excel ya no está disponible en el servidor.' });
       }
-      res.json({ success: true, data: readSpreadsheetInsights(filePath) });
+      res.json({ success: true, data: await processSpreadsheet(filePath) });
     } catch (error) {
       console.error('Employee spreadsheet insights error:', error);
       res.status(error.statusCode || 500).json({
@@ -1441,7 +1428,7 @@ class EmpresaController {
             message: 'La presentación inicial debe ser un único archivo PDF.'
           });
         }
-        const directory = path.join(__dirname, '..', '..', 'uploads', 'reuniones', String(id));
+        const directory = path.join(uploadsRoot, 'reuniones', String(id));
         await fs.promises.mkdir(directory, { recursive: true });
         const safeName = `${crypto.randomBytes(16).toString('hex')}.pdf`;
         const filePath = path.join(directory, safeName);
@@ -1458,7 +1445,7 @@ class EmpresaController {
         pendingFilePath = '';
         return res.status(201).json({
           success: true,
-          data: [protectDocument(documento, empresaId)]
+          data: [protectDocument(documento, empresaId, req.user.sid)]
         });
       }
 
@@ -1466,7 +1453,7 @@ class EmpresaController {
         return res.status(400).json({ success: false, message: 'El área del documento es obligatoria.' });
       }
 
-      const directory = path.join(__dirname, '..', '..', 'uploads', 'reuniones', String(id));
+      const directory = path.join(uploadsRoot, 'reuniones', String(id));
       await fs.promises.mkdir(directory, { recursive: true });
       const documentos = [];
       for (const file of files) {
@@ -1485,13 +1472,13 @@ class EmpresaController {
           fechaSubida: new Date()
         });
         pendingFilePath = '';
-        documentos.push(protectDocument(documento, empresaId));
+        documentos.push(protectDocument(documento, empresaId, req.user.sid));
       }
 
       res.status(201).json({ success: true, data: documentos });
     } catch (error) {
       if (pendingFilePath) {
-        await fs.promises.unlink(pendingFilePath).catch(cleanupError => {
+        await removeStoredFile(pendingFilePath).catch(cleanupError => {
           if (cleanupError.code !== 'ENOENT') {
             console.error('Meeting document cleanup error:', cleanupError.message);
           }
@@ -1524,7 +1511,7 @@ class EmpresaController {
       );
       res.json({
         success: true,
-        data: protectDocument(documento, req.user.empresaId)
+        data: protectDocument(documento, req.user.empresaId, req.user.sid)
       });
     } catch (error) {
       console.error('Update presentation area ranges error:', error.message);
@@ -1550,7 +1537,7 @@ class EmpresaController {
       );
       if (filePath) {
         try {
-          await fs.promises.unlink(filePath);
+          await removeStoredFile(filePath);
         } catch (error) {
           if (error.code !== 'ENOENT') throw error;
         }
@@ -1585,39 +1572,7 @@ class EmpresaController {
           message: 'El archivo Excel ya no está disponible en el servidor.'
         });
       }
-      const XLSX = require('@e965/xlsx');
-      const workbook = XLSX.readFile(filePath, { cellDates: true });
-      const insights = extractSpreadsheetInsights(workbook);
-      const maxRows = 500;
-      const maxColumns = 50;
-      const sheets = workbook.SheetNames.map(name => {
-        const sheet = workbook.Sheets[name];
-        const sourceRange = XLSX.utils.decode_range(sheet['!ref'] || 'A1:A1');
-        const previewRange = {
-          s: sourceRange.s,
-          e: {
-            r: Math.min(sourceRange.e.r, sourceRange.s.r + maxRows - 1),
-            c: Math.min(sourceRange.e.c, sourceRange.s.c + maxColumns - 1)
-          }
-        };
-        const rows = XLSX.utils.sheet_to_json(sheet, {
-          header: 1,
-          raw: false,
-          defval: '',
-          blankrows: false,
-          range: previewRange
-        });
-        return {
-          name,
-          rows: rows.map(row =>
-            row.slice(0, maxColumns).map(value => String(value ?? ''))
-          ),
-          truncated: sourceRange.e.r - sourceRange.s.r + 1 > maxRows
-            || sourceRange.e.c - sourceRange.s.c + 1 > maxColumns
-        };
-      });
-      workbook.SheetNames.forEach(name => delete workbook.Sheets[name]);
-      res.json({ success: true, data: { sheets, insights } });
+      res.json({ success: true, data: await processSpreadsheet(filePath, true) });
     } catch (error) {
       console.error('Preview reunion document error:', error.message);
       res.status(error.statusCode || 500).json({
@@ -1651,11 +1606,11 @@ class EmpresaController {
           message: 'La presentación inicial solo puede reemplazarse por otro archivo PDF.'
         });
       }
-      const safeName = `${Date.now()}-${req.file.originalname
+      const safeName = `${Date.now()}-${crypto.randomBytes(6).toString('hex')}-${req.file.originalname
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
         .replace(/[^a-zA-Z0-9._-]/g, '_')}`;
-      const directory = path.join(__dirname, '..', '..', 'uploads', 'reuniones', String(req.params.id));
+      const directory = path.join(uploadsRoot, 'reuniones', String(req.params.id));
       await fs.promises.mkdir(directory, { recursive: true });
       savedFilePath = path.join(directory, safeName);
       await moveUploadedFile(req.file, savedFilePath);
@@ -1673,7 +1628,7 @@ class EmpresaController {
       );
       savedFilePath = '';
       if (oldFilePath) {
-        await fs.promises.unlink(oldFilePath).catch(error => {
+        await removeStoredFile(oldFilePath).catch(error => {
           if (error.code !== 'ENOENT') {
             console.error('Could not remove replaced meeting document:', error.message);
           }
@@ -1681,11 +1636,11 @@ class EmpresaController {
       }
       res.json({
         success: true,
-        data: protectDocument(result.documento, req.user.empresaId)
+        data: protectDocument(result.documento, req.user.empresaId, req.user.sid)
       });
     } catch (error) {
       if (savedFilePath) {
-        await fs.promises.unlink(savedFilePath).catch(cleanupError => {
+        await removeStoredFile(savedFilePath).catch(cleanupError => {
           if (cleanupError.code !== 'ENOENT') {
             console.error('Could not remove failed replacement document:', cleanupError.message);
           }
@@ -1710,8 +1665,8 @@ class EmpresaController {
         return res.status(400).json({ success: false, message: 'El identificador de la reunión no es válido.' });
       }
       const deletedMeeting = await EmpresaModel.deleteReunion(empresaId, id);
-      const meetingDirectory = path.resolve(__dirname, '..', '..', 'uploads', 'reuniones', String(id));
-      const uploadDirectory = path.resolve(__dirname, '..', '..', 'uploads', 'reuniones');
+      const meetingDirectory = path.resolve(uploadsRoot, 'reuniones', String(id));
+      const uploadDirectory = path.resolve(uploadsRoot, 'reuniones');
       const cleanupErrors = [];
       await Promise.all((deletedMeeting.documentos || []).map(async url => {
         const prefix = `/uploads/reuniones/${id}/`;
@@ -1722,14 +1677,14 @@ class EmpresaController {
         if (!filePath.startsWith(`${meetingDirectory}${path.sep}`)
           || !meetingDirectory.startsWith(`${uploadDirectory}${path.sep}`)) return;
         try {
-          await fs.promises.unlink(filePath);
+          await removeStoredFile(filePath);
         } catch (error) {
           if (error.code !== 'ENOENT') cleanupErrors.push(error);
         }
       }));
       if (!cleanupErrors.length) {
         try {
-          await fs.promises.rm(meetingDirectory, { recursive: true, force: true });
+          await fs.promises.rmdir(meetingDirectory).catch(error => { if (error.code !== 'ENOENT') throw error; });
         } catch (error) {
           cleanupErrors.push(error);
         }
@@ -1896,37 +1851,23 @@ class EmpresaController {
         console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
         return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
       }
-      await authSecurity.resetLoginFailures(email);
-      let isAdministrator = await EmpresaModel.isAdministratorAccount(user.id);
-      if (!isAdministrator && !await EmpresaModel.hasAdministratorAccount()) {
-        const suppliedKey = Buffer.from(String(adminBootstrapKey || ''), 'utf8');
-        const configuredKey = Buffer.from(String(process.env.ADMIN_BOOTSTRAP_KEY || ''), 'utf8');
-        if (!configuredKey.length) {
-          return res.status(503).json({
-            success: false,
-            message: 'La configuración inicial del administrador no está habilitada en el servidor.'
-          });
-        }
-        const validBootstrapKey = suppliedKey.length > 0
-          && suppliedKey.length === configuredKey.length
-          && crypto.timingSafeEqual(suppliedKey, configuredKey);
-        if (!validBootstrapKey) {
-          return res.status(403).json({
-            success: false,
-            message: 'Ingresa la clave de configuración inicial para habilitar esta cuenta como administradora.'
-          });
-        }
-        isAdministrator = await EmpresaModel.claimFirstAdministrator(user.id);
-      }
+      const suppliedKey = Buffer.from(String(adminBootstrapKey || ''), 'utf8');
+      const configuredKey = Buffer.from(String(process.env.ADMIN_BOOTSTRAP_KEY || ''), 'utf8');
+      if (suppliedKey.length) await authSecurity.enforceBootstrapLimits(req, email);
+      const validBootstrapKey = suppliedKey.length > 0
+        && suppliedKey.length === configuredKey.length
+        && crypto.timingSafeEqual(suppliedKey, configuredKey);
+      // A valid initial key goes straight to the single atomic claim; no exists/read race.
+      const isAdministrator = validBootstrapKey
+        ? await EmpresaModel.claimFirstAdministrator(user.id)
+        : await EmpresaModel.isAdministratorAccount(user.id);
       if (!isAdministrator) {
+        console.warn('Administrator access rejected', { userId: String(user.id), ip: req.ip });
         console.warn(`Reviewer login rechazado para ${email || 'correo vacío'}`);
         return res.status(401).json({ success: false, message: 'Credenciales de revisor inválidas' });
       }
-      const token = jwt.sign(
-        { usuarioId: user.id, email: user.email, role: 'administrator' },
-        process.env.JWT_SECRET,
-        { expiresIn: '8h' }
-      );
+      await authSecurity.resetLoginFailures(email);
+      const token = await sessions.issueSession('reviewer', { usuarioId: user.id, email: user.email, role: 'administrator' }, 28800, user.password_hash);
       setSessionCookie(req, res, 'reviewer', token, 8 * 60 * 60);
       console.log(`Reviewer login correcto para ${user.email}`);
       return res.json({ success: true });
@@ -1940,8 +1881,12 @@ class EmpresaController {
     }
   }
 
-  static logout(req, res) {
-    clearSessionCookies(req, res, req.body?.type);
+  static async logout(req, res) {
+    if (!['company', 'employee', 'reviewer'].includes(req.body?.type)) {
+      return res.status(400).json({ success: false, message: 'Tipo de sesion no valido.' });
+    }
+    await sessions.revokeSession(req, req.body.type);
+    clearSessionCookies(req, res, req.body.type);
     return res.json({ success: true });
   }
 

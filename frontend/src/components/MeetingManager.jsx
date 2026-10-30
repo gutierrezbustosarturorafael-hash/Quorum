@@ -4,6 +4,7 @@ import { FileSpreadsheet } from 'lucide-react';
 import { saveAs } from 'file-saver';
 import { jsPDF } from 'jspdf';
 import ApiService from '../services/apiService';
+import { MEETING_STATUSES, normalizeMeetingStatus } from '../utils/meetingStatus';
 import SlideCommit from './SlideCommit/SlideCommit';
 import { sortMeetingsByProximity } from '../utils/meetingDate';
 
@@ -21,21 +22,7 @@ const TIPOS_REUNION = [{
 // ============================================================
 // ESTADOS DE REUNION
 // ============================================================
-const normalizeMeetingStatus = (status = 'pendiente') => {
-  const normalized = String(status || 'pendiente').trim().toLowerCase();
-  const map = {
-    'pendiente': 'pendiente',
-    'en-progreso': 'en_curso',
-    'en_progreso': 'en_curso',
-    'en curso': 'en_curso',
-    'en_curso': 'en_curso',
-    'completada': 'finalizada',
-    'completado': 'finalizada',
-    'finalizada': 'finalizada',
-    'finalizado': 'finalizada'
-  };
-  return map[normalized] || normalized || 'pendiente';
-};
+// Legacy values are normalized by the shared meeting status contract.
 
 const formatMeetingStatus = (status) => {
   const normalized = normalizeMeetingStatus(status);
@@ -47,7 +34,7 @@ const formatMeetingStatus = (status) => {
   return labels[normalized] || 'Pendiente';
 };
 
-const ESTADOS = ['pendiente', 'en_curso', 'finalizada'];
+const ESTADOS = MEETING_STATUSES;
 const ESTADOS_MAP = {
   'pendiente': { bg: '#dff5ff', color: '#0b477d' },
   'en_curso': { bg: '#b8e7fb', color: '#0b3c69' },

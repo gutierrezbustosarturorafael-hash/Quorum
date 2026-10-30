@@ -16,9 +16,6 @@ class ApiService {
     };
 
     headers['X-Quorum-Request'] = '1';
-    Object.keys(headers)
-      .filter(name => name.toLowerCase() === 'authorization')
-      .forEach(name => delete headers[name]);
 
     try {
       const response = await fetch(`${API_URL}${endpoint}`, {
@@ -103,16 +100,13 @@ class ApiService {
     return this.request('/employee/session');
   }
 
-  static async getReviewerCompanies(token) {
-    return this.request('/reviewer/empresas', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+  static async getReviewerCompanies() {
+    return this.request('/reviewer/empresas');
   }
 
-  static async reviewCompany(id, estado, notas, token) {
+  static async reviewCompany(id, estado, notas) {
     return this.request(`/reviewer/empresas/${id}`, {
       method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify({ estado, notas })
     });
   }
@@ -176,17 +170,14 @@ class ApiService {
     });
   }
 
-  static async getEmployeePortal(token) {
-    return this.request('/employee/portal', {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+  static async getEmployeePortal() {
+    return this.request('/employee/portal');
   }
 
-  static async addEmployeeFromEmployeePortal(token, employee) {
+  static async addEmployeeFromEmployeePortal(employee) {
     try {
       return await this.request('/employee/team/employees', {
         method: 'POST',
-        headers: { Authorization: ['Bearer', token].join(' ') },
         body: JSON.stringify(employee)
       });
     } catch (error) {
@@ -197,7 +188,7 @@ class ApiService {
     }
   }
 
-  static async uploadEmployeeMeetingSpreadsheet(token, meetingId, file) {
+  static async uploadEmployeeMeetingSpreadsheet(meetingId, file) {
     const formData = new FormData();
     formData.append('archivo', file);
     const response = await fetch(`${API_URL}/employee/meetings/${meetingId}/spreadsheets`, {
@@ -218,11 +209,10 @@ class ApiService {
     return data;
   }
 
-  static async deleteEmployeeMeetingSpreadsheet(token, meetingId, documentId) {
+  static async deleteEmployeeMeetingSpreadsheet(meetingId, documentId) {
     try {
       return await this.request(`/employee/meetings/${meetingId}/spreadsheets/${documentId}`, {
         method: 'DELETE',
-        headers: { Authorization: ['Bearer', token].join(' ') }
       });
     } catch (error) {
       if (error.code === 'API_ROUTE_NOT_FOUND') {
@@ -232,71 +222,61 @@ class ApiService {
     }
   }
 
-  static async getEmployeeMeetingSpreadsheetInsights(token, meetingId, documentId) {
-    return this.request(`/employee/meetings/${meetingId}/spreadsheets/${documentId}/indicators`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
+  static async getEmployeeMeetingSpreadsheetInsights(meetingId, documentId) {
+    return this.request(`/employee/meetings/${meetingId}/spreadsheets/${documentId}/indicators`);
   }
 
-  static async completeEmployeeProfile(token, profile) {
+  static async completeEmployeeProfile(profile) {
     return this.request('/employee/profile', {
       method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(profile)
     });
   }
 
-  static async updateEmployeePersonalStrategy(token, strategy) {
+  static async updateEmployeePersonalStrategy(strategy) {
     return this.request('/employee/personal-strategy', {
       method: 'PUT',
-      headers: { Authorization: ['Bearer', token].join(' ') },
       body: JSON.stringify(strategy)
     });
   }
 
-  static async createEmployeePersonalMeeting(token, meeting) {
+  static async createEmployeePersonalMeeting(meeting) {
     return this.request('/employee/personal-meetings', {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(meeting)
     });
   }
 
-  static async updateEmployeePersonalMeeting(token, meetingId, meeting) {
+  static async updateEmployeePersonalMeeting(meetingId, meeting) {
     return this.request(`/employee/personal-meetings/${meetingId}`, {
       method: 'PUT',
-      headers: { Authorization: `Bearer ${token}` },
       body: JSON.stringify(meeting)
     });
   }
 
-  static async deleteEmployeePersonalMeeting(token, meetingId) {
+  static async deleteEmployeePersonalMeeting(meetingId) {
     return this.request(`/employee/personal-meetings/${meetingId}`, {
       method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` }
     });
   }
 
-  static async createEmployeePersonalObjective(token, objective) {
+  static async createEmployeePersonalObjective(objective) {
     return this.request('/employee/personal-objectives', {
       method: 'POST',
-      headers: { Authorization: ['Bearer', token].join(' ') },
       body: JSON.stringify(objective)
     });
   }
 
-  static async updateEmployeePersonalObjective(token, objectiveId, objective) {
+  static async updateEmployeePersonalObjective(objectiveId, objective) {
     return this.request(`/employee/personal-objectives/${objectiveId}`, {
       method: 'PUT',
-      headers: { Authorization: ['Bearer', token].join(' ') },
       body: JSON.stringify(objective)
     });
   }
 
-  static async deleteEmployeePersonalObjective(token, objectiveId) {
+  static async deleteEmployeePersonalObjective(objectiveId) {
     return this.request(`/employee/personal-objectives/${objectiveId}`, {
       method: 'DELETE',
-      headers: { Authorization: ['Bearer', token].join(' ') }
     });
   }
 

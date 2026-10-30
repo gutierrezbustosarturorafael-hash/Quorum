@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const crypto = require('crypto');
+const { MEETING_STATUSES, normalizeMeetingStatus } = require('../utils/meetingStatus');
 const { encryptPassword, decryptPassword } = require('../utils/smtpCredentials');
 
 // ============================================================
@@ -101,8 +102,8 @@ const seguimientoSchema = new mongoose.Schema({
   acuerdos: { type: [acuerdoSchema], default: [] },
   conclusion: { type: String, default: '' },
   minuta: { type: String, default: '' },
-  status: { type: String, enum: ['pendiente', 'en-progreso', 'en_curso', 'completada', 'finalizada'], default: 'pendiente' },
-  estado: { type: String, enum: ['pendiente', 'en-progreso', 'en_curso', 'completada', 'finalizada'], default: 'pendiente' },
+  status: { type: String, enum: MEETING_STATUSES, set: normalizeMeetingStatus, default: 'pendiente' },
+  estado: { type: String, enum: MEETING_STATUSES, set: normalizeMeetingStatus, default: 'pendiente' },
   resultadoExitoso: { type: Boolean, default: false },
   tipoReunion: { type: String, default: 'check-in' },
   cronograma: { type: [cronogramaAreaSchema], default: [] },
@@ -127,8 +128,8 @@ const reunionSchema = new mongoose.Schema({
   acuerdos: { type: [acuerdoSchema], default: [] },
   conclusion: { type: String, default: '' },
   minuta: { type: String, default: '' },
-  status: { type: String, enum: ['pendiente', 'en-progreso', 'en_curso', 'completada', 'finalizada'], default: 'pendiente' },
-  estado: { type: String, enum: ['pendiente', 'en-progreso', 'en_curso', 'completada', 'finalizada'], default: 'pendiente' },
+  status: { type: String, enum: MEETING_STATUSES, set: normalizeMeetingStatus, default: 'pendiente' },
+  estado: { type: String, enum: MEETING_STATUSES, set: normalizeMeetingStatus, default: 'pendiente' },
   resultadoExitoso: { type: Boolean, default: false },
   seguimientos: { type: [seguimientoSchema], default: [] },
   tipoReunion: { type: String, default: 'check-in' },
@@ -254,7 +255,7 @@ const indicadorPersonalEmpleadoSchema = new mongoose.Schema({
 
 indicadorPersonalEmpleadoSchema.index({ empresaId: 1, empleadoId: 1, updatedAt: -1 });
 
-empresaSchema.pre('validate', function preventOversizedDocument(next) {
+empresaSchema.pre('validate', function preventOversizedDocument() {
   if (!this.tipoPersona) {
     this.tipoPersona = 'fisica';
   }
@@ -265,10 +266,9 @@ empresaSchema.pre('validate', function preventOversizedDocument(next) {
   if (estimatedBytes > safeDocumentLimit) {
     const error = new Error('La información de la empresa es demasiado grande. Archiva reuniones o documentos antiguos antes de guardar más datos.');
     error.statusCode = 413;
-    return next(error);
+    throw error;
   }
 
-  next();
 });
 
 // Índices
@@ -279,6 +279,15 @@ reunionSchema.add({ empresaId: { type: mongoose.Schema.Types.ObjectId, ref: 'Emp
 reunionSchema.index({ empresaId: 1, fecha: -1 });
 reunionSchema.index({ recurrenceOccurrenceKey: 1 }, { unique: true, sparse: true });
 
+for (const schema of [reunionSchema, seguimientoSchema]) {
+  schema.pre('validate', function () {
+    // Also normalize documents hydrated from older database records when saved.
+    const status = normalizeMeetingStatus(this.isModified('estado') ? this.estado : this.status || this.estado);
+    this.status = status;
+    this.estado = status;
+  });
+}
+
 const Empresa = mongoose.model('Empresa', empresaSchema);
 const Reunion = mongoose.model('Reunion', reunionSchema);
 const Usuario = mongoose.model('Usuario', usuarioSchema);
@@ -287,27 +296,6 @@ const Empleado = mongoose.model('Empleado', empleadoSchema);
 const ReunionPersonalEmpleado = mongoose.model('ReunionPersonalEmpleado', reunionPersonalEmpleadoSchema);
 const IndicadorPersonalEmpleado = mongoose.model('IndicadorPersonalEmpleado', indicadorPersonalEmpleadoSchema);
 
-const normalizeMeetingStatus = (value, fallback = 'pendiente') => {
-  const status = String(value ?? '').trim().toLowerCase();
-  if (!status) return fallback;
-
-  const mapping = {
-    pendiente: 'pendiente',
-    'en-progreso': 'en_curso',
-    en_progreso: 'en_curso',
-    'en curso': 'en_curso',
-    en_curso: 'en_curso',
-    'en curso ': 'en_curso',
-    completada: 'finalizada',
-    completado: 'finalizada',
-    'finalizada': 'finalizada',
-    finalizado: 'finalizada',
-    cerrada: 'finalizada',
-    'finalizada ': 'finalizada'
-  };
-
-  return mapping[status] || status;
-};
 
 const normalizeArea = value => String(value ?? '').trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
@@ -695,7 +683,7 @@ class EmpresaModel {
       { empresaId, empleadoId: employee._id },
       { $set: { area } }
     );
-    const profileData = await this.getEmpleadoProfile(employee._id);
+    const profileData = await this.getEmpleadoProfile(empresaId, employee._id);
     return { ...profileData, tieneCuenta: Boolean(employee.passwordHash) };
   }
 
@@ -919,7 +907,12 @@ class EmpresaModel {
         empresa: empresaData,
         foda: empresa.foda || {},
         objetivos: empresa.objetivos || [],
-        reuniones,
+        reuniones: reuniones.map(meeting => ({
+          ...meeting,
+          status: normalizeMeetingStatus(meeting.status || meeting.estado),
+          estado: normalizeMeetingStatus(meeting.status || meeting.estado),
+          seguimientos: (meeting.seguimientos || []).map(followup => ({ ...followup, status: normalizeMeetingStatus(followup.status || followup.estado), estado: normalizeMeetingStatus(followup.status || followup.estado) }))
+        })),
         directivos: empresa.directivos || [],
         smtpConvocatorias,
       };
@@ -1015,7 +1008,7 @@ class EmpresaModel {
         departamentos: empresa.departamentos,
         subareasPorDepartamento: this.getSubareasPorDepartamento(directivosConSubareas)
       },
-      organigrama: await this.getCompanyOrganizationChart(empresaId),
+      organigrama: [],
       reuniones: []
     };
   }
@@ -1040,16 +1033,21 @@ class EmpresaModel {
         ...(empresa.directivos || []),
         ...empleadosDirectivos
       ]),
-      organigrama: await this.getCompanyOrganizationChart(empresa._id)
+      organigrama: []
     };
   }
 
   static async registerEmpleado({ companyCode, nombre, email, passwordHash, area, subarea, verifiedCompanyAccountId }) {
     const empresa = await Empresa.findOne({ codigoInvitacion: String(companyCode || '').trim().toUpperCase() })
-      .select('_id departamentos directivos');
+      .select('_id departamentos directivos verificacion.estado');
     if (!empresa) {
       const error = new Error('El código de invitación no existe. Solicita el código vigente al organizador.');
       error.statusCode = 404;
+      throw error;
+    }
+    if (empresa.verificacion?.estado === 'suspendida') {
+      const error = new Error('La empresa esta suspendida. No se pueden registrar colaboradores.');
+      error.statusCode = 403;
       throw error;
     }
     const selectedArea = String(area || '').trim();
@@ -1214,8 +1212,8 @@ class EmpresaModel {
     return missing;
   }
 
-  static async completeEmpleadoProfile(empleadoId, profile) {
-    const empleado = await Empleado.findById(empleadoId);
+  static async completeEmpleadoProfile(empresaId, empleadoId, profile) {
+    const empleado = await Empleado.findOne({ _id: empleadoId, empresaId });
     if (!empleado) {
       const error = new Error('No se encontró el perfil del colaborador.');
       error.statusCode = 404;
@@ -1335,7 +1333,7 @@ class EmpresaModel {
       { empresaId: empleado.empresaId, empleadoId: empleado._id },
       { $set: { area: empleado.area } }
     );
-    return this.getEmpleadoProfile(empleadoId);
+    return this.getEmpleadoProfile(empresaId, empleadoId);
   }
 
   static async updateEmployeePersonalStrategy(empresaId, empleadoId, data) {
@@ -1366,7 +1364,7 @@ class EmpresaModel {
       await this.syncEmpleadoDirectivo(empleado);
     }
     await empleado.save();
-    return this.getEmpleadoProfile(empleadoId);
+    return this.getEmpleadoProfile(empresaId, empleadoId);
   }
 
   static async syncEmpleadoDirectivo(empleado) {
@@ -1429,8 +1427,8 @@ class EmpresaModel {
     await empresa.save();
   }
 
-  static async getEmpleadoProfile(empleadoId) {
-    return Empleado.findById(empleadoId)
+  static async getEmpleadoProfile(empresaId, empleadoId) {
+    return Empleado.findOne({ _id: empleadoId, empresaId })
       .select('empresaId nombre email tieneCuenta rol area areasACargo subarea telefono trabajadoresACargo misionPersonal visionPersonal valoresPersonales estrategiasPersonales metasPersonales fodaPersonal dirigeSubareas subareas esJefeDepartamento esJefeEmpresa liderazgoConfirmado jefaturaConfirmada asignacionConfirmada')
       .lean();
   }
@@ -1573,7 +1571,7 @@ class EmpresaModel {
       { empresaId, empleadoId: empleado._id },
       { $set: { area: empleado.area } }
     );
-    return this.getEmpleadoProfile(empleadoId);
+    return this.getEmpleadoProfile(empresaId, empleadoId);
   }
 
   static async createManualEmpleado(empresaId, profile) {
@@ -1679,7 +1677,7 @@ class EmpresaModel {
       });
       await empresa.save();
     }
-    return this.getEmpleadoProfile(empleado._id);
+    return this.getEmpleadoProfile(empresaId, empleado._id);
   }
 
   static async deleteEmpleado(empresaId, empleadoId) {
@@ -2163,7 +2161,7 @@ class EmpresaModel {
 
   static async findReunion(empresaId, reunionId) {
     const reunion = await Reunion.findOne({ _id: reunionId, empresaId });
-    if (!reunion) throw new Error('Reunion no encontrada');
+    if (!reunion) { const error = new Error('Reunion no encontrada.'); error.statusCode = 404; throw error; }
     return reunion;
   }
 
@@ -2309,7 +2307,7 @@ class EmpresaModel {
   static async marcarConvocatoriaEnviada(empresaId, reunionId) { return this.updateReunion(empresaId, reunionId, { convocatoriaEnviada: true, fechaConvocatoria: new Date() }); }
 
   static async deleteReunion(empresaId, reunionId) {
-    const reunion = await Reunion.findOne({ _id: reunionId, empresaId }).select('documentos');
+    const reunion = await Reunion.findOne({ _id: reunionId, empresaId }).select('documentos seguimientos.documentos');
     if (!reunion) {
       const error = new Error('Reunión no encontrada.');
       error.statusCode = 404;
@@ -2319,13 +2317,24 @@ class EmpresaModel {
     if (!result.deletedCount) throw new Error('Reunion no encontrada');
     return {
       id: reunionId,
-      documentos: (reunion.documentos || []).map(documento => documento.url).filter(Boolean)
+      documentos: [...new Set([...(reunion.documentos || []), ...(reunion.seguimientos || []).flatMap(item => item.documentos || [])].map(documento => documento.url).filter(Boolean))]
     };
+  }
+
+  static resolveFollowupDocuments(reunion, documents) {
+    if (!Array.isArray(documents)) { const error = new Error('Documentos invalidos'); error.statusCode = 400; throw error; }
+    return documents.map(document => {
+      const stored = document && mongoose.isValidObjectId(document._id) ? reunion.documentos.id(document._id) : null;
+      if (!stored || (document.url && stored.url !== document.url)) {
+        const error = new Error('El documento no pertenece a esta reunion.'); error.statusCode = 400; throw error;
+      }
+      return stored.toObject();
+    });
   }
 
   static async createSeguimiento(empresaId, reunionId, data) {
     const reunion = await this.findReunion(empresaId, reunionId); const status = normalizeMeetingStatus(data.estado ?? data.status ?? 'pendiente');
-    reunion.seguimientos.push({ titulo: data.titulo, fecha: data.fecha, hora: data.hora, lugar: data.lugar || '', duracion: data.duracion || '', objetivo: data.objetivo || '', coordinador: data.coordinador || '', participantes: data.participantes || [], departamentos: data.departamentos || [], agenda: data.agenda || [], tipoReunion: data.tipoReunion || 'check-in', status, estado: status, resultadoExitoso: Boolean(data.resultadoExitoso), cronograma: normalizeCronograma(data.cronograma || []), documentos: Array.isArray(data.documentos) ? data.documentos : [], indicadoresVinculados: Array.isArray(data.indicadoresVinculados) ? data.indicadoresVinculados : [] });
+    reunion.seguimientos.push({ titulo: data.titulo, fecha: data.fecha, hora: data.hora, lugar: data.lugar || '', duracion: data.duracion || '', objetivo: data.objetivo || '', coordinador: data.coordinador || '', participantes: data.participantes || [], departamentos: data.departamentos || [], agenda: data.agenda || [], tipoReunion: data.tipoReunion || 'check-in', status, estado: status, resultadoExitoso: Boolean(data.resultadoExitoso), cronograma: normalizeCronograma(data.cronograma || []), documentos: this.resolveFollowupDocuments(reunion, data.documentos || []), indicadoresVinculados: Array.isArray(data.indicadoresVinculados) ? data.indicadoresVinculados : [] });
     await reunion.save(); return reunion.seguimientos[reunion.seguimientos.length - 1];
   }
 
@@ -2337,6 +2346,7 @@ class EmpresaModel {
       error.statusCode = 404;
       throw error;
     }
+    if (data.documentos !== undefined) data = { ...data, documentos: this.resolveFollowupDocuments(reunion, data.documentos) };
     const campos = ['status', 'estado', 'conclusion', 'minuta', 'acuerdos', 'resultadoExitoso', 'tipoReunion', 'cronograma', 'documentos', 'indicadoresVinculados'];
     campos.forEach(campo => { if (data[campo] !== undefined) seguimiento[campo] = campo === 'status' || campo === 'estado' ? normalizeMeetingStatus(data[campo], seguimiento[campo] || 'pendiente') : campo === 'cronograma' ? normalizeCronograma(data[campo]) : data[campo]; });
     if (data.status !== undefined || data.estado !== undefined) { const status = normalizeMeetingStatus(data.estado ?? data.status ?? seguimiento.status, 'pendiente'); seguimiento.status = status; seguimiento.estado = status; }
@@ -2401,10 +2411,6 @@ class EmpresaModel {
       console.error('Error en verifyUser:', error.message);
       throw error;
     }
-  }
-
-  static async hasAdministratorAccount() {
-    return Boolean(await AdministradorConfig.exists({ _id: 'principal' }));
   }
 
   static async claimFirstAdministrator(usuarioId) {

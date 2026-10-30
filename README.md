@@ -128,6 +128,9 @@ For Gmail, use an application password rather than the regular account password.
 
 ## Sign-in security
 
-Sign-in sessions use role-specific `HttpOnly` cookies, which are not readable by frontend JavaScript. Existing browser-stored login tokens are removed when the updated frontend starts; users will need to sign in again. Direct document links remain a separate, file-scoped bearer capability in the URL and expire after 12 hours; do not share those URLs outside the intended audience.
+Sign-in sessions use role-specific `HttpOnly` cookies, which are not readable by frontend JavaScript. Existing browser-stored login tokens are removed when the updated frontend starts; users will need to sign in again. Document links expire after 15 minutes and also require the active HttpOnly session cookie that issued them. Logout revokes that session in MongoDB; changing a password invalidates existing sessions. Existing sessions issued before this change require a fresh sign-in.
 
 The backend limits sign-in attempts to 5 per account and 30 requests per source IP in a 15-minute window. A successful password resets the account's failed-attempt counter. Counters are stored in MongoDB with a TTL index. Session cookies are `Secure` in production; production deployments must serve the frontend and API over HTTPS. Set `FRONTEND_URL` to the exact frontend origin (including the origin used by a development tunnel or LAN deployment). Credentialed browser requests also require a custom request header and an explicitly allowed origin to prevent cross-site requests.
+
+
+Procedimiento actualizado de despliegue, pruebas aisladas, migracion de estados, cuarentena y copias de seguridad: [Operacion y validacion](docs/operacion-y-validacion.md).

@@ -1,0 +1,21 @@
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs/promises');
+const os = require('os');
+const path = require('path');
+const XLSX = require('@e965/xlsx');
+const { processSpreadsheet } = require('../src/services/spreadsheetProcessing');
+test('spreadsheet preview runs in a worker and truncates large sheets', { timeout: 20000 }, async t => {
+  const scratch = await fs.mkdtemp(path.join(os.tmpdir(), 'quorum-preview-test-'));
+  t.after(() => fs.rm(scratch, { recursive: true, force: true }));
+  const workbook = XLSX.utils.book_new();
+  const rows = [['Nombre', 'Avance'], ...Array.from({ length: 1005 }, (_, i) => ['Meta ' + i, i % 100])];
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'Datos');
+  const filename = path.join(scratch, 'fixture.xlsx');
+  XLSX.writeFile(workbook, filename);
+  const result = await processSpreadsheet(filename, true);
+  assert.equal(result.sheets.length, 1);
+  assert.ok(result.sheets[0].rows.length <= 500);
+  assert.equal(result.sheets[0].truncated, true);
+  assert.deepEqual(result.sheets[0].rows[0], ['Nombre', 'Avance']);
+});

@@ -104,14 +104,14 @@ const documentUrl = document => {
     : encodeURI(`${SERVER_URL}${document.url.startsWith('/') ? document.url : `/${document.url}`}`);
 };
 
-const EmployeeSpreadsheetInsights = ({ token, meetingId, document }) => {
+const EmployeeSpreadsheetInsights = ({ meetingId, document }) => {
   const [insights, setInsights] = useState(null);
   const [error, setError] = useState('');
   const [loadingInsights, setLoadingInsights] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
-    ApiService.getEmployeeMeetingSpreadsheetInsights(token, meetingId, document._id)
+    ApiService.getEmployeeMeetingSpreadsheetInsights(meetingId, document._id)
       .then(response => {
         if (!cancelled) setInsights(response.data);
       })
@@ -122,7 +122,7 @@ const EmployeeSpreadsheetInsights = ({ token, meetingId, document }) => {
         if (!cancelled) setLoadingInsights(false);
       });
     return () => { cancelled = true; };
-  }, [token, meetingId, document._id]);
+  }, [meetingId, document._id]);
 
   return (
     <div className="employee-spreadsheet-insights">
@@ -245,7 +245,7 @@ const EmployeePortal = ({ companyId }) => {
   const [savingTeamEmployee, setSavingTeamEmployee] = useState(false);
   const [teamAreaFilter, setTeamAreaFilter] = useState('');
   const [lookingUpCompany, setLookingUpCompany] = useState(false);
-  const [token, setToken] = useState('');
+  const [authenticated, setAuthenticated] = useState(false);
   const [portal, setPortal] = useState(null);
   const [uploadingSpreadsheetMeetingId, setUploadingSpreadsheetMeetingId] = useState('');
   const [pendingSpreadsheetFiles, setPendingSpreadsheetFiles] = useState({});
@@ -295,13 +295,13 @@ const EmployeePortal = ({ companyId }) => {
     localStorage.setItem('quorumEmployeeReduceMotion', String(reduceMotion));
   }, [largeText, reduceMotion]);
 
-  const loadPortal = useCallback(async accessToken => {
-    const response = await ApiService.getEmployeePortal(accessToken);
+  const loadPortal = useCallback(async () => {
+    const response = await ApiService.getEmployeePortal();
     setPortal(response.data);
   }, []);
 
   const uploadMeetingSpreadsheet = async (meeting, file) => {
-    if (!token || !file) return;
+    if (!authenticated || !file) return;
     const extension = file.name.toLowerCase().split('.').pop();
     if (!['xlsx', 'xls', 'xlsb'].includes(extension)) {
       setSpreadsheetUploadErrors(current => ({
@@ -322,13 +322,13 @@ const EmployeePortal = ({ companyId }) => {
     setUploadingSpreadsheetMeetingId(meetingId);
     setSpreadsheetUploadErrors(current => ({ ...current, [meetingId]: '' }));
     try {
-      await ApiService.uploadEmployeeMeetingSpreadsheet(token, meetingId, file);
+      await ApiService.uploadEmployeeMeetingSpreadsheet(meetingId, file);
       setPendingSpreadsheetFiles(current => {
         const next = { ...current };
         delete next[meetingId];
         return next;
       });
-      await loadPortal(token);
+      await loadPortal();
     } catch (uploadError) {
       setSpreadsheetUploadErrors(current => ({
         ...current,
@@ -342,13 +342,13 @@ const EmployeePortal = ({ companyId }) => {
   const deleteMeetingSpreadsheet = async (meeting, document) => {
     const meetingId = String(meeting._id || meeting.id);
     const documentId = String(document._id || '');
-    if (!token || !documentId
+    if (!authenticated || !documentId
       || !window.confirm(`¿Eliminar "${document.nombreArchivo || 'este Excel'}" de la reunión?`)) return;
     setDeletingSpreadsheetDocumentId(documentId);
     setSpreadsheetUploadErrors(current => ({ ...current, [meetingId]: '' }));
     try {
-      await ApiService.deleteEmployeeMeetingSpreadsheet(token, meetingId, documentId);
-      await loadPortal(token);
+      await ApiService.deleteEmployeeMeetingSpreadsheet(meetingId, documentId);
+      await loadPortal();
     } catch (deleteError) {
       setSpreadsheetUploadErrors(current => ({
         ...current,
@@ -365,9 +365,9 @@ const EmployeePortal = ({ companyId }) => {
       .then(response => {
         const rememberedCompanyId = String(response.empresaId);
         sessionStorage.setItem('quorumEmployeeCompanyId', rememberedCompanyId);
-        setToken('authenticated');
+        setAuthenticated(true);
         setError('');
-        return loadPortal('authenticated');
+        return loadPortal();
       })
       .catch(loadError => {
         if (loadError.status !== 401) {
@@ -470,7 +470,7 @@ const EmployeePortal = ({ companyId }) => {
         })
         : await ApiService.employeeAccountLogin(account.email, account.password);
       sessionStorage.setItem('quorumEmployeeCompanyId', response.empresaId);
-      setToken('authenticated');
+      setAuthenticated(true);
       if (accessMode === 'register') {
         setRegistrationDepartments(response.departamentos || []);
       }
@@ -478,7 +478,7 @@ const EmployeePortal = ({ companyId }) => {
         window.location.assign(`/empleados/${response.empresaId}`);
         return;
       }
-      await loadPortal('authenticated');
+      await loadPortal();
     } catch (requestError) {
       setError(requestError.message || 'No se pudo procesar la cuenta de colaborador.');
       if (requestError.code === 'EMPLOYEE_ACCOUNT_EXISTS') setAccessMode('login');
@@ -492,10 +492,10 @@ const EmployeePortal = ({ companyId }) => {
     setError('');
     setLoading(true);
     try {
-      await ApiService.completeEmployeeProfile(token, {
+      await ApiService.completeEmployeeProfile({
         ...employeeProfilePayload(profileForm)
       });
-      await loadPortal(token);
+      await loadPortal();
       setEditingProfile(false);
     } catch (requestError) {
       setError(requestError.message || 'No se pudieron guardar los datos faltantes.');
@@ -510,9 +510,9 @@ const EmployeePortal = ({ companyId }) => {
     setTeamEmployeeMessage('');
     setSavingTeamEmployee(true);
     try {
-      const response = await ApiService.addEmployeeFromEmployeePortal(token, teamEmployeeDraft);
+      const response = await ApiService.addEmployeeFromEmployeePortal(teamEmployeeDraft);
       setTeamEmployeeDraft({ nombre: '', email: '', area: '', subarea: '' });
-      await loadPortal(token);
+      await loadPortal();
       setTeamEmployeeMessage(response.data.tieneCuenta
         ? 'La cuenta existente quedó vinculada al área y empresa seleccionadas.'
         : 'La persona quedó en el directorio. Comparte el código de invitación de la empresa para que cree su acceso.');
@@ -532,7 +532,7 @@ const EmployeePortal = ({ companyId }) => {
     }
     sessionStorage.removeItem('quorumEmployeeCompanyId');
     setPortal(null);
-    setToken('');
+    setAuthenticated(false);
   };
 
   const missingProfileFields = portal?.missingProfileFields || [];
@@ -596,17 +596,17 @@ const EmployeePortal = ({ companyId }) => {
 
   const savePersonalMeeting = async event => {
     event.preventDefault();
-    if (!token) return;
+    if (!authenticated) return;
     setSavingPersonalMeeting(true);
     setPersonalMeetingError('');
     const { id, ...meetingData } = personalMeetingDraft;
     try {
       if (id) {
-        await ApiService.updateEmployeePersonalMeeting(token, id, meetingData);
+        await ApiService.updateEmployeePersonalMeeting(id, meetingData);
       } else {
-        await ApiService.createEmployeePersonalMeeting(token, meetingData);
+        await ApiService.createEmployeePersonalMeeting(meetingData);
       }
-      await loadPortal(token);
+      await loadPortal();
       setShowPersonalMeetingForm(false);
     } catch (requestError) {
       setPersonalMeetingError(requestError.message || 'No se pudo guardar la reunión personal. Inténtalo de nuevo.');
@@ -617,12 +617,12 @@ const EmployeePortal = ({ companyId }) => {
 
   const deletePersonalMeeting = async meeting => {
     const id = meeting._id || meeting.id;
-    if (!token || !id || !window.confirm(`¿Eliminar "${meeting.titulo}" de tu registro personal?`)) return;
+    if (!authenticated || !id || !window.confirm(`¿Eliminar "${meeting.titulo}" de tu registro personal?`)) return;
     setSavingPersonalMeeting(true);
     setPersonalMeetingError('');
     try {
-      await ApiService.deleteEmployeePersonalMeeting(token, id);
-      await loadPortal(token);
+      await ApiService.deleteEmployeePersonalMeeting(id);
+      await loadPortal();
     } catch (requestError) {
       setPersonalMeetingError(requestError.message || 'No se pudo eliminar la reunión personal. Inténtalo de nuevo.');
     } finally {
@@ -651,7 +651,7 @@ const EmployeePortal = ({ companyId }) => {
 
   const savePersonalStrategy = async event => {
     event.preventDefault();
-    if (!token) return;
+    if (!authenticated) return;
     setSavingPersonalStrategy(true);
     setPersonalStrategyError('');
     const listFromLines = value => value.split('\n').map(item => item.trim()).filter(Boolean);
@@ -673,8 +673,8 @@ const EmployeePortal = ({ companyId }) => {
       strategy.trabajadoresACargo = Number(personalStrategyDraft.trabajadoresACargo) || 0;
     }
     try {
-      await ApiService.updateEmployeePersonalStrategy(token, strategy);
-      await loadPortal(token);
+      await ApiService.updateEmployeePersonalStrategy(strategy);
+      await loadPortal();
       setShowPersonalStrategyForm(false);
     } catch (requestError) {
       setPersonalStrategyError(requestError.message || 'No se pudo guardar tu información personal. Inténtalo de nuevo.');
@@ -687,7 +687,7 @@ const EmployeePortal = ({ companyId }) => {
     const input = event.currentTarget;
     const file = input.files?.[0];
     input.value = '';
-    if (!file || !token) return;
+    if (!file || !authenticated) return;
     setCompanyImportMessage('');
     if (!file.name.toLocaleLowerCase('es').endsWith('.txt')) {
       setCompanyImportMessage('Selecciona el archivo de texto .txt exportado desde Quorum.');
@@ -758,8 +758,8 @@ const EmployeePortal = ({ companyId }) => {
         return;
       }
 
-      await ApiService.updateEmployeePersonalStrategy(token, strategy);
-      await loadPortal(token);
+      await ApiService.updateEmployeePersonalStrategy(strategy);
+      await loadPortal();
       setCompanyImportMessage('La información del archivo se agregó a tu plan personal sin reemplazar los datos que ya tenías.');
     } catch (importError) {
       setCompanyImportMessage(importError.message || 'No se pudo importar la información del archivo.');
@@ -785,7 +785,7 @@ const EmployeePortal = ({ companyId }) => {
 
   const savePersonalObjective = async event => {
     event.preventDefault();
-    if (!token) return;
+    if (!authenticated) return;
     setSavingPersonalObjective(true);
     setPersonalObjectiveError('');
     const { id, ...draft } = personalObjectiveDraft;
@@ -798,11 +798,11 @@ const EmployeePortal = ({ companyId }) => {
     };
     try {
       if (id) {
-        await ApiService.updateEmployeePersonalObjective(token, id, objectiveData);
+        await ApiService.updateEmployeePersonalObjective(id, objectiveData);
       } else {
-        await ApiService.createEmployeePersonalObjective(token, objectiveData);
+        await ApiService.createEmployeePersonalObjective(objectiveData);
       }
-      await loadPortal(token);
+      await loadPortal();
       setShowPersonalObjectiveForm(false);
     } catch (requestError) {
       setPersonalObjectiveError(requestError.message || 'No se pudo guardar el indicador. Inténtalo de nuevo.');
@@ -813,12 +813,12 @@ const EmployeePortal = ({ companyId }) => {
 
   const deletePersonalObjective = async objective => {
     const id = objective._id || objective.id;
-    if (!token || !id || !window.confirm(`¿Eliminar "${objective.nombre}" de tu plan personal?`)) return;
+    if (!authenticated || !id || !window.confirm(`¿Eliminar "${objective.nombre}" de tu plan personal?`)) return;
     setSavingPersonalObjective(true);
     setPersonalObjectiveError('');
     try {
-      await ApiService.deleteEmployeePersonalObjective(token, id);
-      await loadPortal(token);
+      await ApiService.deleteEmployeePersonalObjective(id);
+      await loadPortal();
     } catch (requestError) {
       setPersonalObjectiveError(requestError.message || 'No se pudo eliminar el indicador. Inténtalo de nuevo.');
     } finally {
@@ -1039,7 +1039,6 @@ const EmployeePortal = ({ companyId }) => {
           .map(document => (
             <EmployeeSpreadsheetInsights
               key={`insights-${document._id}`}
-              token={token}
               meetingId={meetingId}
               document={document}
             />

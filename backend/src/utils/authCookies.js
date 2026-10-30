@@ -33,7 +33,8 @@ const setSessionCookie = (req, res, type, token, maxAgeSeconds) => {
 
 const clearSessionCookies = (req, res, type) => {
   const options = cookieOptions(req);
-  const names = type && COOKIE_NAMES[type] ? [COOKIE_NAMES[type]] : Object.values(COOKIE_NAMES);
+  if (!Object.hasOwn(COOKIE_NAMES, type)) throw new Error('Tipo de sesion no valido.');
+  const names = [COOKIE_NAMES[type]];
   names.forEach(name => {
     res.append('Set-Cookie', `${name}=; ${options}; Max-Age=0`);
   });

@@ -62,11 +62,21 @@ const enforceRateLimit = async (key, limit, windowMs = 15 * 60 * 1000) => {
 };
 
 const enforceAuthLimits = async (req, email) => {
-  const normalizedEmail = String(email || '').trim().toLowerCase();
+  const normalizedEmail = typeof email === 'string' ? email.trim().toLowerCase() : '';
   await enforceRateLimit(`login-ip:${req.ip}`, 30);
+  if (!normalizedEmail || normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    const error = new Error('El correo no es valido.');
+    error.statusCode = 400;
+    throw error;
+  }
   if (!req.path.endsWith('/register')) {
     await enforceRateLimit(`login-email:${normalizedEmail}`, 5);
   }
+};
+
+const enforceBootstrapLimits = async (req, email) => {
+  await enforceRateLimit('bootstrap-ip:' + req.ip, 10);
+  await enforceRateLimit('bootstrap-email:' + String(email).trim().toLowerCase(), 5);
 };
 
 const resetLoginFailures = async email => {
@@ -77,6 +87,8 @@ const resetLoginFailures = async email => {
 
 module.exports = {
   initializeAuthSecurity,
+  enforceRateLimit,
+  enforceBootstrapLimits,
   enforceAuthLimits,
   resetLoginFailures
 };

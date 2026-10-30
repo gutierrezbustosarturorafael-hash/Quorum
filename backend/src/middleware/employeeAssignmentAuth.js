@@ -2,7 +2,7 @@ const EmpresaModel = require('../models/empresaModel');
 
 const employeeAssignmentAuth = async (req, res, next) => {
   try {
-    const profile = await EmpresaModel.getEmpleadoProfile(req.user.employeeId);
+    const profile = await EmpresaModel.getEmpleadoProfile(req.user.empresaId, req.user.employeeId);
     if (!profile || String(profile.empresaId) !== String(req.user.empresaId)) {
       return res.status(403).json({ success: false, message: 'La cuenta no pertenece a esta empresa.' });
     }

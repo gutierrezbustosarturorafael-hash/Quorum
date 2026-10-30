@@ -39,6 +39,8 @@ const mimeTypes = {
 };
 
 const server = http.createServer(async (request, response) => {
+  response.setHeader('X-Frame-Options', 'DENY');
+  response.setHeader('Content-Security-Policy', "frame-ancestors 'none'; base-uri 'self'; object-src 'none'");
   if (request.method !== 'GET' && request.method !== 'HEAD') {
     response.writeHead(405, { Allow: 'GET, HEAD' });
     response.end();

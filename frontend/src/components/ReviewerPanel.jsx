@@ -4,7 +4,7 @@ import ApiService from '../services/apiService';
 
 const ReviewerPanel = () => {
   const [credentials, setCredentials] = useState({ email: '', password: '', adminBootstrapKey: '' });
-  const [token, setToken] = useState(false);
+  const [authenticated, setAuthenticated] = useState(false);
   const [companies, setCompanies] = useState([]);
   const [message, setMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -20,10 +20,10 @@ const ReviewerPanel = () => {
     try {
       const response = await ApiService.getReviewerCompanies();
       setCompanies(response.data || []);
-      setToken(true);
+      setAuthenticated(true);
       setMessage('');
     } catch (error) {
-      setToken(null);
+      setAuthenticated(null);
       if (error.status !== 401) {
         setMessage(error.message || 'No se pudo cargar la información. Recarga la página e inténtalo de nuevo.');
       }
@@ -47,7 +47,7 @@ const ReviewerPanel = () => {
         credentials.adminBootstrapKey
       );
       setCredentials(current => ({ ...current, adminBootstrapKey: '' }));
-      setToken(true);
+      setAuthenticated(true);
       await loadCompanies();
       setMessage('');
     } catch (error) {
@@ -60,7 +60,7 @@ const ReviewerPanel = () => {
   const logout = async () => {
     try {
       await ApiService.logout('reviewer');
-      setToken(false);
+      setAuthenticated(false);
       setCompanies([]);
       setMessage('');
     } catch (error) {
@@ -80,8 +80,8 @@ const ReviewerPanel = () => {
     setReviewingId(company._id);
     setMessage('');
     try {
-      await ApiService.reviewCompany(company._id, estado, notas, token);
-      await loadCompanies(token);
+      await ApiService.reviewCompany(company._id, estado, notas);
+      await loadCompanies();
       setSelectedCompany(null);
     } catch (error) {
       setMessage(error.message || 'No se pudo actualizar la solicitud. Inténtalo de nuevo.');
@@ -110,7 +110,7 @@ const ReviewerPanel = () => {
     pendiente: 'warning'
   }[status] || 'warning');
 
-  if (!token) {
+  if (!authenticated) {
     if (loadingCompanies) {
       return (
         <div className="reviewer-shell">

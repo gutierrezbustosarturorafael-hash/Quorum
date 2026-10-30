@@ -3,7 +3,8 @@ const path = require('path');
 const crypto = require('crypto');
 const multer = require('multer');
 
-const stagingDirectory = path.resolve(__dirname, '..', '..', 'uploads', '.staging');
+const { uploadsRoot } = require('../config/uploads');
+const stagingDirectory = path.join(uploadsRoot, '.staging');
 
 const storage = multer.diskStorage({
   destination: (req, file, callback) => {
@@ -14,13 +15,13 @@ const storage = multer.diskStorage({
   }
 });
 
-const createUpload = options => multer({ storage, ...options });
+const createUpload = options => multer({ storage, ...options, limits: { files: 20, fields: 10, parts: 30, fieldSize: 64 * 1024, ...options?.limits } });
 
 const moveUploadedFile = (file, destination) => fs.promises.rename(file.path, destination);
 
 const withUploadedFileCleanup = handler => (req, res, next) => {
   const uploads = [...(req.files || []), ...(req.file ? [req.file] : [])];
-  Promise.resolve()
+  return Promise.resolve()
     .then(() => handler(req, res, next))
     .catch(next)
     .finally(async () => {

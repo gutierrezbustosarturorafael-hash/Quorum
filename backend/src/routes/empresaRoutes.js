@@ -10,6 +10,8 @@ const employeeSpreadsheetUpload = require('../middleware/employeeSpreadsheetUplo
 const presentationUpload = require('../middleware/presentationUpload');
 const strategicPlanUpload = require('../middleware/strategicPlanUpload');
 const authRateLimit = require('../middleware/authRateLimit');
+const resourceLimits = require('../middleware/resourceLimits');
+const uploadBudget = require('../middleware/uploadBudget');
 const { withUploadedFileCleanup } = require('../utils/uploadFiles');
 const {
   registerValidation,
@@ -43,7 +45,7 @@ router.put('/empresa/convocatorias/smtp', authMiddleware, EmpresaController.save
 router.delete('/empresa/convocatorias/smtp', authMiddleware, EmpresaController.deleteCompanySmtp);
 router.put('/empresa', authMiddleware, EmpresaController.updateEmpresa);
 router.put('/foda', authMiddleware, EmpresaController.updateFODA);
-router.post('/empresa/plan-estrategico', authMiddleware, strategicPlanUpload.single('archivo'), withUploadedFileCleanup(EmpresaController.uploadStrategicPlan));
+router.post('/empresa/plan-estrategico', authMiddleware, resourceLimits('upload', 20), uploadBudget, strategicPlanUpload.single('archivo'), withUploadedFileCleanup(EmpresaController.uploadStrategicPlan));
 router.post('/empresa/empleados', authMiddleware, EmpresaController.createEmployee);
 router.put('/empresa/empleados/:employeeId', authMiddleware, EmpresaController.updateEmployeeProfile);
 router.delete('/empresa/empleados/:employeeId', authMiddleware, EmpresaController.deleteEmployee);
@@ -56,9 +58,9 @@ router.delete('/empresa/empleados/:employeeId/indicadores-personales/:objectiveI
 router.get('/employee/portal', employeeAuth, EmpresaController.getEmployeePortal);
 router.get('/employee/session', employeeAuth, EmpresaController.employeeSession);
 router.post('/employee/team/employees', employeeAuth, employeeAssignmentAuth, EmpresaController.addEmployeeFromEmployeePortal);
-router.post('/employee/meetings/:id/spreadsheets', employeeAuth, employeeAssignmentAuth, employeeSpreadsheetUpload.single('archivo'), withUploadedFileCleanup(EmpresaController.uploadEmployeeMeetingSpreadsheet));
+router.post('/employee/meetings/:id/spreadsheets', employeeAuth, employeeAssignmentAuth, resourceLimits('upload', 20), uploadBudget, employeeSpreadsheetUpload.single('archivo'), withUploadedFileCleanup(EmpresaController.uploadEmployeeMeetingSpreadsheet));
 router.delete('/employee/meetings/:id/spreadsheets/:documentId', employeeAuth, employeeAssignmentAuth, EmpresaController.deleteEmployeeMeetingSpreadsheet);
-router.get('/employee/meetings/:id/spreadsheets/:documentId/indicators', employeeAuth, employeeAssignmentAuth, EmpresaController.getEmployeeMeetingSpreadsheetInsights);
+router.get('/employee/meetings/:id/spreadsheets/:documentId/indicators', employeeAuth, employeeAssignmentAuth, resourceLimits('preview', 20), EmpresaController.getEmployeeMeetingSpreadsheetInsights);
 router.put('/employee/profile', employeeAuth, employeeAssignmentAuth, EmpresaController.completeEmployeeProfile);
 router.put('/employee/personal-strategy', employeeAuth, employeeAssignmentAuth, EmpresaController.updateEmployeePersonalStrategy);
 router.post('/employee/personal-meetings', employeeAuth, employeeAssignmentAuth, EmpresaController.createEmployeePersonalMeeting);
@@ -75,10 +77,10 @@ router.put('/reuniones/:id/repeticion/detener', authMiddleware, EmpresaControlle
 router.put('/reuniones/:id', authMiddleware, updateTextValidation, EmpresaController.updateReunion);
 router.put('/reuniones/:id/completar', authMiddleware, EmpresaController.completeReunion);
 router.put('/reuniones/:id/minuta', authMiddleware, updateTextValidation, EmpresaController.updateMinuta);
-router.post('/reuniones/:id/documentos', authMiddleware, presentationUpload.array('archivo', 20), withUploadedFileCleanup(EmpresaController.uploadReunionDocumento));
-router.get('/reuniones/:id/documentos/:documentoId/vista-previa', authMiddleware, EmpresaController.previewReunionDocumento);
+router.post('/reuniones/:id/documentos', authMiddleware, resourceLimits('upload', 20), uploadBudget, presentationUpload.array('archivo', 20), withUploadedFileCleanup(EmpresaController.uploadReunionDocumento));
+router.get('/reuniones/:id/documentos/:documentoId/vista-previa', authMiddleware, resourceLimits('preview', 20), EmpresaController.previewReunionDocumento);
 router.put('/reuniones/:id/presentacion/:documentoId/rangos', authMiddleware, EmpresaController.updatePresentationAreaRanges);
-router.put('/reuniones/:id/documentos/:documentoId', authMiddleware, meetingUpload.single('archivo'), withUploadedFileCleanup(EmpresaController.replaceReunionDocumento));
+router.put('/reuniones/:id/documentos/:documentoId', authMiddleware, resourceLimits('upload', 20), uploadBudget, meetingUpload.single('archivo'), withUploadedFileCleanup(EmpresaController.replaceReunionDocumento));
 router.delete('/reuniones/:id/documentos/:documentoId', authMiddleware, EmpresaController.deleteReunionDocumento);
 router.delete('/reuniones/:id', authMiddleware, EmpresaController.deleteReunion);
 router.post('/reuniones/:id/reenviar', authMiddleware, EmpresaController.reenviarConvocatoria);

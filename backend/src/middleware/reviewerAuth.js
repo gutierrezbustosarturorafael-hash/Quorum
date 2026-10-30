@@ -1,27 +1,21 @@
 const jwt = require('jsonwebtoken');
-const EmpresaModel = require('../models/empresaModel');
 const { COOKIE_NAMES, getCookieToken } = require('../utils/authCookies');
+const sessions = require('../services/sessions');
+const EmpresaModel = require('../models/empresaModel');
 
 module.exports = async (req, res, next) => {
   const token = getCookieToken(req, COOKIE_NAMES.reviewer);
-  if (!token) {
-    return res.status(401).json({ success: false, message: 'Acceso de revisor no autorizado' });
-  }
+  if (!token) return res.status(401).json({ success: false, message: 'Inicia sesion para continuar.' });
   try {
-    const payload = jwt.verify(token, process.env.JWT_SECRET);
-    if (payload.role !== 'administrator' || !payload.usuarioId) {
-      return res.status(403).json({ success: false, message: 'Se requiere una cuenta administradora' });
-    }
-    if (!await EmpresaModel.isAdministratorAccount(payload.usuarioId)) {
-      return res.status(403).json({ success: false, message: 'La cuenta ya no tiene acceso administrativo' });
-    }
+    const payload = jwt.verify(token, process.env.JWT_SECRET, { algorithms: ['HS256'] });
+    const validRole = payload.role === 'administrator' && payload.usuarioId;
+    if (!validRole) return res.status(403).json({ success: false, message: 'La sesion no tiene permisos para este acceso.' });
+    await sessions.validateSession(payload, 'reviewer');
+    if (!await EmpresaModel.isAdministratorAccount(payload.usuarioId)) return res.status(403).json({ success: false, message: 'Se requiere una cuenta administradora.' });
     req.reviewer = payload;
-    next();
+    return next();
   } catch (error) {
-    if (['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name)) {
-      return res.status(401).json({ success: false, message: 'Sesión de revisor inválida' });
-    }
-    console.error('Administrator authentication error:', error.message);
-    return res.status(500).json({ success: false, message: 'No se pudo validar la sesión administrativa' });
+    const status = error.statusCode || (['JsonWebTokenError', 'TokenExpiredError', 'NotBeforeError'].includes(error.name) ? 401 : 503);
+    return res.status(status).json({ success: false, message: status === 503 ? 'No se pudo verificar la sesion. Intentalo de nuevo.' : error.statusCode ? error.message : 'La sesion vencio o no es valida.' });
   }
 };
