@@ -118,7 +118,7 @@ const protectMeetingDocuments = (reunion, empresaId, sid) => {
       documentos: (seguimiento.documentos || []).map(documento => protectDocument(documento, empresaId, sid))
     }))
   };
-};
+};  
 
 const validateEmployeePersonalMeeting = data => {
   const title = String(data.titulo || '').trim();
