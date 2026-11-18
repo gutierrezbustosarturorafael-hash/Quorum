@@ -10,6 +10,7 @@ const empresaRoutes = require('./routes/empresaRoutes');
 const { startWeeklyMeetingScheduler } = require('./services/weeklyMeetingScheduler');
 
 const { uploadsRoot, initializeUploads } = require('./config/uploads');
+const { attachRequestId, logRequestError, logErrorDetails } = require('./utils/requestDiagnostics');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const isProduction = process.env.NODE_ENV === 'production';
@@ -46,6 +47,7 @@ if (forceHttps) {
 }
 
 app.set('trust proxy', trustedProxyHops);
+app.use(attachRequestId);
 
 if (!process.env.JWT_SECRET || process.env.JWT_SECRET.length < 32) {
   throw new Error('JWT_SECRET debe estar configurado y tener al menos 32 caracteres');
@@ -122,10 +124,11 @@ app.use((error, req, res, next) => {
     : error.message === 'Unexpected field'
       ? 'El archivo se recibió con un campo no permitido. Usa el selector de archivos de la reunión.'
       : error.message || 'Error interno del servidor';
-  console.error('Request error:', error.message);
+  logRequestError('Request error', req, error);
   res.status(status).json({
     success: false,
-    message
+    message,
+    requestId: req.requestId
   });
 });
 
@@ -155,7 +158,7 @@ const startServer = async () => {
       process.exitCode = 1;
     });
   } catch (error) {
-    console.error(' Failed to start server:', error.message);
+    logErrorDetails('Failed to start server', error);
     process.exit(1);
     
   }

@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const { initializeAuthSecurity } = require('../services/authSecurity');
+const { logErrorDetails } = require('../utils/requestDiagnostics');
 
 const readPositiveInteger = (name, fallback) => {
   const value = Number(process.env[name]);
@@ -42,7 +43,7 @@ const connectDB = async () => {
 
     return conn;
   } catch (error) {
-    console.error('MongoDB connection error:', error.message);
+    logErrorDetails('MongoDB connection error', error);
     throw error;
   }
 };

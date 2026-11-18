@@ -15,6 +15,7 @@ const resolveStoredMeetingDocumentPath = require('../utils/meetingDocumentPath')
 const authSecurity = require('../services/authSecurity');
 const sessions = require('../services/sessions');
 const { setSessionCookie, clearSessionCookies } = require('../utils/authCookies');
+const { logRequestError } = require('../utils/requestDiagnostics');
 
 const getStoredMeetingDocumentPath = documento => {
   const meetingsRoot = path.resolve(uploadsRoot, 'reuniones');
@@ -400,11 +401,12 @@ class EmpresaController {
       setSessionCookie(req, res, 'company', token, 7 * 24 * 60 * 60);
       res.json({ success: true, empresaId: user.empresa_id });
     } catch (error) {
-      console.error('Login error:', error.message);
+      logRequestError('Login error', req, error);
       if (error.statusCode === 429) res.setHeader('Retry-After', error.retryAfter);
       res.status(error.statusCode || 500).json({
         success: false,
-        message: error.statusCode ? error.message : 'Error al iniciar sesion'
+        message: error.statusCode ? error.message : 'Error al iniciar sesion',
+        requestId: req.requestId
       });
     }
   }
@@ -458,10 +460,11 @@ class EmpresaController {
         }
       });
     } catch (error) {
-      console.error('Get empresa error:', error.message);
+      logRequestError('Get empresa error', req, error);
       res.status(error.statusCode || 500).json({
         success: false,
-        message: error.statusCode ? error.message : 'Error al obtener datos'
+        message: error.statusCode ? error.message : 'Error al obtener datos',
+        requestId: req.requestId
       });
     }
   }
@@ -676,8 +679,12 @@ class EmpresaController {
         }
       });
     } catch (error) {
-      console.error('Get employee portal error:', error.message);
-      res.status(500).json({ success: false, message: 'No se pudo cargar tu espacio de colaborador. Inténtalo de nuevo.' });
+      logRequestError('Get employee portal error', req, error);
+      res.status(500).json({
+        success: false,
+        message: 'No se pudo cargar tu espacio de colaborador. Inténtalo de nuevo.',
+        requestId: req.requestId
+      });
     }
   }
 
